@@ -209,6 +209,43 @@ const Fitbit = (() => {
     return res;
   }
 
+  // Today's daily summary straight from Fitbit — steps, resting heart rate,
+  // calories, distance — refreshed whenever Home renders. This is the
+  // closest thing to "live" the standard Web API offers without special
+  // approval: true continuous/intraday heart rate needs Fitbit's separate
+  // intraday-access application review, which is out of scope for a
+  // personal Client app. Resting heart rate and today's totals update
+  // multiple times a day as your Fitbit syncs to Fitbit's servers, which is
+  // honestly close enough for "how am I doing today" at a glance.
+  async function fetchTodaySummary(_isRetry) {
+    const t = await ensureFreshToken();
+    if (!t) return { ok: false, error: 'not_connected' };
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const res = await withTimeout(fetch(`${API_BASE}/1/user/-/activities/date/${today}.json`, {
+        headers: { authorization: `Bearer ${t.access_token}` }
+      }), 15000, 'fitbit-today');
+      if (res.status === 401 && !_isRetry) {
+        const fresh = await refreshToken(t);
+        if (fresh) return fetchTodaySummary(true);
+      }
+      if (!res.ok) return { ok: false, error: 'http_' + res.status };
+      const data = await res.json();
+      const s = data.summary || {};
+      const total = (s.distances || []).find(d => d.activity === 'total');
+      return {
+        ok: true,
+        steps: s.steps ?? null,
+        restingHeartRate: s.restingHeartRate ?? null,
+        caloriesOut: s.caloriesOut ?? null,
+        distanceKm: total ? total.distance : null,
+        activeMinutes: (s.fairlyActiveMinutes || 0) + (s.veryActiveMinutes || 0)
+      };
+    } catch (e) {
+      return { ok: false, error: 'network' };
+    }
+  }
+
   // Recent Fitbit-sourced metrics (steps, resting effort, distance) for
   // grounding AI insights/chat in real wearable data, not just workouts.
   function recentWearableSummary(profile, days = 7) {
@@ -224,6 +261,6 @@ const Fitbit = (() => {
 
   return {
     getClientId, setClientId, isConnected, disconnect, connect, handleRedirectIfPresent,
-    syncToProfile, autoSyncIfDue, recentWearableSummary
+    syncToProfile, autoSyncIfDue, recentWearableSummary, fetchTodaySummary
   };
 })();

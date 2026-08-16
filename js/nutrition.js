@@ -77,7 +77,7 @@ const Nutrition = (() => {
   // and get calories/protein filled in for you — the same one-tap-to-log
   // feel as the photo scanner, without needing the camera.
   async function estimateFromText(description) {
-    if (!Store.getApiKey()) return { ok: false, error: 'no_key' };
+    if (!Sync.isLoggedIn()) return { ok: false, error: 'not_signed_in' };
     const sys = 'You estimate rough calorie/protein content of a described meal for casual tracking. This is NOT precise and you must say so. Respond in EXACTLY this format, nothing else:\nNAME: <short food name>\nCALORIES: <number>\nPROTEIN: <number>\nNOTE: <one short honest caveat about estimate accuracy>';
     const res = await BedrockAPI.chat([{ role: 'user', content: `Estimate the calories and protein of: ${description}` }], sys);
     if (!res.ok) return res;
@@ -121,7 +121,7 @@ const Nutrition = (() => {
   }
 
   async function estimateFoodPhoto(dataUrl) {
-    if (!Store.getApiKey()) return { ok: false, error: 'no_key' };
+    if (!Sync.isLoggedIn()) return { ok: false, error: 'not_signed_in' };
     const sys = 'You estimate rough calorie/protein content of food photos for casual tracking. This is NOT precise and you must say so. Respond in EXACTLY this format, nothing else:\nNAME: <short food name>\nCALORIES: <number>\nPROTEIN: <number>\nNOTE: <one short honest caveat about estimate accuracy>';
     const res = await BedrockAPI.askAboutImage(dataUrl, 'Estimate the calories and protein of this food.', sys);
     if (!res.ok) return res;
@@ -145,7 +145,7 @@ const Nutrition = (() => {
   // Uses logged meal history as memory so suggestions reflect what the
   // person actually eats, not generic advice.
   async function suggestMeal(profile) {
-    if (!Store.getApiKey()) return { ok: false, error: 'no_key' };
+    if (!Sync.isLoggedIn()) return { ok: false, error: 'not_signed_in' };
     const target = dailyTarget(profile);
     const totals = todayTotals(profile);
     const sys = BEDROCK_PERSONA + ' Suggest ONE concrete next meal or snack (real foods, rough portions) that closes the gap to the remaining daily targets, based on what they usually eat if that\'s clear from the log. 3-4 sentences. Not medical advice.';

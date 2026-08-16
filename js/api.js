@@ -1,9 +1,12 @@
 /* ===================== Bedrock — Claude API wrapper ===================== */
-/* Calls the Anthropic Messages API directly from the browser using a
-   user-supplied API key. Anthropic supports this via the
-   "anthropic-dangerous-direct-browser-access" header, meant for personal /
-   prototype use — the key is visible to anyone who inspects this browser,
-   so only use a key you're fine having live on your own phone. */
+/* All Claude calls go through the account-gated Cloudflare Worker backend
+   (see cloudflare-worker/) via Sync — there is no personal API key
+   anywhere in this app. The worker holds the real Anthropic key
+   server-side and injects it after checking the caller's session token, so
+   signing in (Settings → Sync, or onboarding's last step) is the only
+   "unlock AI" step there is. Every caller of BedrockAPI has a working
+   non-AI fallback (see js/insights.js) for when there's no backend
+   deployed yet, or the user isn't signed in. */
 
 /* Shared persona used across every Claude call so answers are consistent:
    coach-level depth (think CSCS strength coach + registered-dietitian-level
@@ -12,40 +15,23 @@
 const BEDROCK_PERSONA = 'You are Bedrock — you reason with the depth of a CSCS-certified strength coach combined with a registered-dietitian-level grasp of sports nutrition. Evidence-based and practical, never fad-driven or hype-y. Ground answers in the data you\'re given rather than inventing specifics. You are not a doctor — flag medical questions as ones for a real professional.';
 
 const BedrockAPI = (() => {
-  const ENDPOINT = 'https://api.anthropic.com/v1/messages';
-  // Optional: worker-example/deploy-worker.sh rewrites this one line to your
-  // deployed Cloudflare Worker URL when you choose to hide your Anthropic key
-  // behind a real backend (see README "Optional: hide your API key behind a
-  // real backend"). Leave it null to keep calling Anthropic directly from the
-  // browser with a per-device key pasted into Settings.
-  const PROXY_ENDPOINT = null;
   const MODEL = 'claude-sonnet-5';
 
   // Fails fast (15s timeout) and retries once on a timeout/network blip or a
-  // 5xx from Anthropic's side, so a flaky connection or a temporary outage
+  // 5xx from the backend, so a flaky connection or a temporary outage
   // doesn't hang the UI — every caller always gets {ok:false,...} quickly
   // and has a non-AI fallback path (see js/insights.js for the pattern).
   async function ask({ system, messages, maxTokens = 600 }, _retriesLeft = 1) {
-    const usingProxy = !!PROXY_ENDPOINT;
-    const key = usingProxy ? null : Store.getApiKey();
-    if (!usingProxy && !key) {
-      return { ok: false, error: 'no_key' };
+    if (!Sync.isLoggedIn()) {
+      return { ok: false, error: 'not_signed_in' };
     }
     try {
-      const headers = {
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01'
-      };
-      if (usingProxy) {
-        // No x-api-key here on purpose — the worker injects the real key
-        // server-side, so it never touches this browser.
-      } else {
-        headers['x-api-key'] = key;
-        headers['anthropic-dangerous-direct-browser-access'] = 'true';
-      }
-      const res = await withTimeout(fetch(usingProxy ? PROXY_ENDPOINT : ENDPOINT, {
+      const res = await withTimeout(fetch(Sync.backendUrl() + '/api/anthropic', {
         method: 'POST',
-        headers,
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer ' + Sync.getToken()
+        },
         body: JSON.stringify({
           model: MODEL,
           max_tokens: maxTokens,

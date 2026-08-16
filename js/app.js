@@ -13,8 +13,12 @@ const VIEWS = ['onboarding', 'dashboard', 'workout', 'progress', 'supplements', 
 
 function showView(name) {
   VIEWS.forEach(v => { const el = $('view-' + v); if (el) el.hidden = (v !== name); });
+  // "Gym mode" (an in-progress workout) drops the chrome entirely, same as
+  // onboarding — the logger screen's own close button is the way out.
+  const chromeless = name === 'onboarding' || name === 'workout';
   $('topbar').hidden = (name === 'onboarding');
-  $('bottomnav').hidden = (name === 'onboarding');
+  $('bottomnav').hidden = chromeless;
+  $('navFab').hidden = chromeless;
   const navMap = { dashboard: 'dashboard', progress: 'progress', supplements: 'supplements', chat: 'chat' };
   qsa('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.nav === navMap[name]));
   const titles = { dashboard: 'Bedrock', progress: 'Progress', supplements: 'Fuel', chat: 'Ask Bedrock', settings: 'Settings', workout: 'Session', guide: 'Guide' };
@@ -34,6 +38,39 @@ function inputToLb(val) {
   const n = Number(val);
   if (isNaN(n)) return null;
   return (ACTIVE && ACTIVE.unitWeight === 'kg') ? Store.kgToLb(n) : n;
+}
+
+/* ---------------------------------------------------------------- */
+/* Theme (light/dark) — defaults to the OS preference (see css/style.css's */
+/* prefers-color-scheme block); an explicit tap overrides and persists.    */
+/* ---------------------------------------------------------------- */
+const THEME_KEY = 'bedrock_theme';
+function applyStoredTheme() {
+  const stored = localStorage.getItem(THEME_KEY);
+  if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored;
+  updateThemeIcon();
+}
+function toggleTheme() {
+  const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const current = document.documentElement.dataset.theme || (systemDark ? 'dark' : 'light');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem(THEME_KEY, next);
+  updateThemeIcon();
+}
+function updateThemeIcon() {
+  const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : systemDark;
+  const icon = $('themeIcon');
+  if (icon) icon.textContent = isDark ? 'light_mode' : 'dark_mode';
+}
+
+// Single choke point for "save the active profile": writes to localStorage
+// (always) and, if signed in, queues a debounced cloud push (see js/sync.js)
+// so every mutation site doesn't need to know sync exists.
+function saveActive() {
+  Store.upsertProfile(ACTIVE);
+  Sync.pushDebounced(ACTIVE);
 }
 
 /* ---------------------------------------------------------------- */
@@ -68,8 +105,16 @@ function initOnboarding() {
   ONBOARD_DRAFT.focusAreas = [];
   wireMultiChoiceGrid('ob-focus', vals => ONBOARD_DRAFT.focusAreas = vals);
 
-  $('ob-add-key').onclick = () => { showView('settings'); $('settingsApiKey').focus(); };
-  $('ob-skip-key').onclick = () => {};
+  $('ob-sync-signin').onclick = () => onboardSyncSignIn();
+}
+
+async function onboardSyncSignIn() {
+  const username = $('ob-sync-username').value.trim();
+  const password = $('ob-sync-password').value;
+  if (!username || !password) { $('obSyncStatus').textContent = 'Enter a username and password.'; return; }
+  $('obSyncStatus').textContent = 'Signing in…';
+  const res = await Sync.login(username, password);
+  $('obSyncStatus').textContent = res.ok ? `Signed in as ${res.username}.` : (res.error === 'no_backend' ? 'No backend deployed yet — skip for now.' : 'Incorrect username or password.');
 }
 
 function wireUnitToggle(containerId, onChange) {
@@ -151,18 +196,22 @@ function finishOnboarding() {
   Store.upsertProfile(ONBOARD_DRAFT);
   Store.setActiveId(ONBOARD_DRAFT.id);
   ACTIVE = ONBOARD_DRAFT;
+  // If they just signed in on the previous step, this seeds their new
+  // account with this profile (or pulls down an existing one — see
+  // Sync.syncAfterLogin). If they skipped sign-in, this is a no-op.
+  Sync.syncAfterLogin(ACTIVE);
   showView('dashboard');
   renderDashboard();
   maybeAskOnboardingFollowUps();
 }
 
 async function maybeAskOnboardingFollowUps() {
-  if (!Store.getApiKey()) return;
+  if (!Sync.isLoggedIn()) return;
   const sys = BEDROCK_PERSONA + ` The user just onboarded. Ask ONE short, specific follow-up question (max 2 sentences) that would meaningfully sharpen their training or nutrition plan (e.g. typical diet pattern, sleep, past injuries, schedule constraints). Do not repeat info you already have: name ${ONBOARD_DRAFT.name}, goal ${ONBOARD_DRAFT.goal}, experience ${ONBOARD_DRAFT.exp}, days/week ${ONBOARD_DRAFT.days}, equipment ${ONBOARD_DRAFT.equipment}.`;
   const res = await BedrockAPI.chat([{ role: 'user', content: 'Ask me your one follow-up question.' }], sys);
   if (res.ok && res.text) {
     ACTIVE.history.chats.push({ role: 'assistant', content: res.text, date: Date.now() });
-    Store.upsertProfile(ACTIVE);
+    saveActive();
   }
 }
 
@@ -205,7 +254,43 @@ function renderDashboard() {
   renderDailyInsight();
   renderReadiness();
   renderHousehold();
+  renderFitbitToday();
   silentFitbitAutoSync();
+}
+
+// Live-ish Fitbit numbers for today (steps, resting HR, calories, active
+// minutes) — a lightweight GET, safe to refresh on every Home render.
+let FITBIT_TODAY = null;
+async function renderFitbitToday() {
+  const card = $('fitbitTodayCard');
+  if (!Fitbit.isConnected()) { card.hidden = true; return; }
+  const res = await Fitbit.fetchTodaySummary();
+  if (!res.ok) { card.hidden = true; return; }
+  FITBIT_TODAY = res;
+  card.hidden = false;
+  const stat = (icon, val, label) => `
+    <div style="flex:1;">
+      <span class="ms" style="font-size:20px; opacity:0.55;">${icon}</span>
+      <div style="font-size:20px; font-weight:600; margin-top:4px;">${val ?? '—'}</div>
+      <div style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; opacity:0.45; margin-top:1px;">${label}</div>
+    </div>`;
+  $('fitbitTodayStats').innerHTML =
+    stat('directions_walk', res.steps != null ? res.steps.toLocaleString() : null, 'Steps') +
+    stat('favorite', res.restingHeartRate, 'Resting HR') +
+    stat('local_fire_department', res.caloriesOut != null ? res.caloriesOut.toLocaleString() : null, 'Calories');
+  $('fitbitTodayNote').textContent = 'Resting heart rate updates as your Fitbit syncs through the day — this isn’t a continuous live feed (that needs Fitbit’s separate intraday API approval), just the latest synced numbers. ⌚ from your Fitbit';
+}
+
+async function askFitbitBreakdown() {
+  if (!FITBIT_TODAY) return;
+  $('fitbitBreakdownResult').hidden = false;
+  $('fitbitBreakdownResult').textContent = 'Thinking…';
+  const wearable = Fitbit.recentWearableSummary(ACTIVE);
+  const msg = `Today: ${FITBIT_TODAY.steps ?? '—'} steps, resting HR ${FITBIT_TODAY.restingHeartRate ?? '—'} bpm, ${FITBIT_TODAY.caloriesOut ?? '—'} calories out, ${FITBIT_TODAY.activeMinutes ?? 0} active minutes.` +
+    (wearable ? `\nLast ${wearable.days} days (from logged Fitbit exercises): ${wearable.count} activities, ~${wearable.totalSteps} total steps${wearable.avgHr ? `, avg heart rate ~${wearable.avgHr} bpm` : ''}${wearable.totalDistanceKm ? `, ~${wearable.totalDistanceKm} km` : ''}.` : '');
+  const sys = BEDROCK_PERSONA + ' You will get today’s Fitbit numbers plus recent trend data. Give a short (3-4 sentence), practical read: how today looks relative to the recent trend, and whether it changes anything about training or recovery today. Resting heart rate trending up over days can flag under-recovery — mention that ONLY if the data actually suggests it. Not medical advice.';
+  const res = await BedrockAPI.chat([{ role: 'user', content: msg }], sys);
+  $('fitbitBreakdownResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
 // Not single-player: when two profiles share a device, show both side by
@@ -240,9 +325,26 @@ function renderReadiness() {
   card.hidden = false;
   const zoneLabel = { 'undertraining': 'Easing off', 'sweet-spot': 'Sweet spot', 'caution': 'Rising fast', 'high-risk': 'Spiked' }[r.zone];
   const zoneClass = { 'undertraining': 'evidence-moderate', 'sweet-spot': 'evidence-strong', 'caution': 'evidence-moderate', 'high-risk': 'evidence-limited' }[r.zone];
+  const zoneColor = { 'undertraining': 'var(--accent-text)', 'sweet-spot': 'var(--olive-text)', 'caution': 'var(--accent-text)', 'high-risk': 'var(--danger)' }[r.zone];
+  // Ring fill is a simple visual scale, not a clinical readout: ratio 0 →
+  // empty, ratio 2.0 (double your recent baseline load) → full ring. ACWR
+  // itself typically runs ~0.8-1.5 day to day, so this keeps the "sweet
+  // spot" comfortably mid-ring rather than pinned at either end.
+  const circumference = 264;
+  const fillFrac = Math.max(0, Math.min(1, r.ratio / 2));
+  const dashoffset = Math.round(circumference * (1 - fillFrac));
   $('readinessBody').innerHTML = `
-    <span class="evidence-tag ${zoneClass}">${zoneLabel} · ratio ${r.ratio}</span>
-    <p class="muted-copy">${r.message} <span class="badge-optional">📊 from your logs</span></p>
+    <div class="ring-gauge-wrap">
+      <svg viewBox="0 0 100 100">
+        <circle class="ring-gauge-track" cx="50" cy="50" r="42"></circle>
+        <circle class="ring-gauge-fill" cx="50" cy="50" r="42" style="stroke:${zoneColor}; stroke-dashoffset:${dashoffset};"></circle>
+      </svg>
+      <div class="ring-gauge-center">
+        <div><div class="val">${r.ratio}</div><div class="lbl">ACWR</div></div>
+      </div>
+    </div>
+    <p class="muted-copy" style="text-align:center; margin:12px 0 0;"><span class="evidence-tag ${zoneClass}" style="margin:0 0 6px;">${zoneLabel}</span></p>
+    <p class="muted-copy" style="text-align:center;">${r.message} <span class="badge-optional">📊 from your logs</span></p>
   `;
 }
 
@@ -284,7 +386,7 @@ function lastLoggedExercise(exerciseId) {
 function excludeExerciseAndRefresh(exerciseId) {
   ACTIVE.excludedExercises = ACTIVE.excludedExercises || [];
   if (!ACTIVE.excludedExercises.includes(exerciseId)) ACTIVE.excludedExercises.push(exerciseId);
-  Store.upsertProfile(ACTIVE);
+  saveActive();
 }
 
 // Swaps just one exercise inside an in-progress workout for an alternative
@@ -486,7 +588,7 @@ function finishWorkout() {
   const prs = Insights.checkNewPRs(ACTIVE, cleaned.exercises);
   ACTIVE.history.workouts = ACTIVE.history.workouts || [];
   ACTIVE.history.workouts.push(cleaned);
-  Store.upsertProfile(ACTIVE);
+  saveActive();
   ACTIVE_WORKOUT = null;
   showPRToast(prs, Insights.workoutStreak(ACTIVE));
   showView('dashboard');
@@ -548,7 +650,7 @@ function renderProgress() {
   if (latest) $('scanHistoryPhoto').src = latest.photo;
   $('btnComparePhotos').hidden = photosWithPics.length < 2;
   renderFocusOverlayToggle();
-  $('scanAiCard').style.opacity = Store.getApiKey() ? '1' : '0.55';
+  $('scanAiCard').style.opacity = Sync.isLoggedIn() ? '1' : '0.55';
 
   drawWeightChart();
   drawVolumeChart();
@@ -562,7 +664,7 @@ function drawMuscleChart() {
   const byMuscle = Insights.muscleVolumeBreakdown(ACTIVE);
   const items = Object.entries(byMuscle).map(([label, value]) => ({ label, value: Math.round(value) }));
   MiniChart.drawBars($('muscleChart'), items);
-  $('muscleCaption').textContent = Insights.muscleBalanceCaption(byMuscle);
+  $('muscleCaption').textContent = Insights.muscleBalanceCaption(byMuscle, ACTIVE);
 }
 
 function drawExerciseChart() {
@@ -629,7 +731,7 @@ function renderTrajectoryStats() {
   p.textContent = Trajectory.narrativeText(proj, unit);
   wrap.appendChild(p);
 
-  $('btnAskTrajectory').hidden = !Store.getApiKey();
+  $('btnAskTrajectory').hidden = !Sync.isLoggedIn();
 
   const n = (ACTIVE.history.workouts || []).length;
   const stage = n < 4 ? 'Early data — estimates are rough, mostly based on research norms for your experience level.'
@@ -645,7 +747,7 @@ async function askTrajectoryAi() {
   $('trajectoryAiResult').hidden = false;
   $('trajectoryAiResult').textContent = 'Thinking…';
   const res = await BedrockAPI.chat([{ role: 'user', content: msg }], sys);
-  $('trajectoryAiResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check your API key in Settings.';
+  $('trajectoryAiResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
 function setPendingPhoto(dataUrl, keypoints) {
@@ -756,12 +858,12 @@ async function askAiAboutScan() {
   const latest = Scan.latestPhoto(ACTIVE);
   const photo = PENDING_PHOTO || (latest && latest.photo);
   if (!photo) { alert('Take or upload a photo first.'); return; }
-  if (!Store.getApiKey()) { alert('Add your Claude API key in Settings first.'); return; }
+  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   $('scanAiResult').hidden = false;
   $('scanAiResult').textContent = 'Looking…';
   const sys = BEDROCK_PERSONA + ' Give general, non-medical feedback on this standing progress photo: posture, symmetry, and whether the shot is consistent for future comparisons (angle, lighting, distance). Do NOT estimate body fat percentage, diagnose anything, or make medical claims. Keep it to 3-4 sentences.';
   const res = await BedrockAPI.askAboutImage(photo, 'Give me general posture/consistency feedback on this progress photo.', sys);
-  $('scanAiResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check your API key in Settings.';
+  $('scanAiResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
 // Published research on smartphone photo-based body composition tracking
@@ -774,7 +876,7 @@ async function askAiAboutScan() {
 async function comparePhotosClick() {
   const photos = (ACTIVE.history.checkins || []).filter(c => c.photo).slice(-2);
   if (photos.length < 2) return;
-  if (!Store.getApiKey()) { alert('Add your Claude API key in Settings first.'); return; }
+  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   $('comparePhotosResult').hidden = false;
   $('comparePhotosResult').textContent = 'Comparing…';
   const sys = BEDROCK_PERSONA + ' You will see two standing progress photos, oldest first. Give a brief, honest, directional impression of visible change (e.g. posture, general visible tone/fullness) — 3 sentences max. Do NOT estimate a body fat percentage or give a medical/diagnostic read; you are not a validated body-composition tool, just giving a casual visual impression. If the photos are too inconsistent (angle/distance/lighting) to compare fairly, say so.';
@@ -791,7 +893,7 @@ async function comparePhotosClick() {
       ]
     }]
   });
-  $('comparePhotosResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check your API key in Settings.';
+  $('comparePhotosResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
 /* ---------------------------------------------------------------- */
@@ -869,7 +971,7 @@ function renderNutrition() {
 async function estimateTextClick() {
   const text = $('mealQuickText').value.trim();
   if (!text) return;
-  if (!Store.getApiKey()) { alert('Add your Claude API key in Settings first — or just fill in calories/protein by hand below.'); return; }
+  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first — or just fill in calories/protein by hand below.'); return; }
   $('mealName').value = 'Estimating…';
   const res = await Nutrition.estimateFromText(text);
   if (res.ok) {
@@ -878,7 +980,7 @@ async function estimateTextClick() {
     $('mealProtein').value = res.proteinG;
   } else {
     $('mealName').value = text;
-    alert('Couldn’t reach Bedrock — fill in calories/protein by hand, or check your API key in Settings.');
+    alert('Couldn’t reach Bedrock — fill in calories/protein by hand, or check you’re signed in under Settings → Sync.');
   }
 }
 
@@ -897,7 +999,7 @@ function addMealFromForm() {
 }
 
 async function scanFoodDataUrl(dataUrl) {
-  if (!Store.getApiKey()) { alert('Add your Claude API key in Settings first.'); return; }
+  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   $('mealName').value = 'Scanning…';
   const res = await Nutrition.estimateFoodPhoto(dataUrl);
   if (res.ok) {
@@ -907,7 +1009,7 @@ async function scanFoodDataUrl(dataUrl) {
     alert(res.note + ' Edit the numbers if they look off, then tap Log it.');
   } else {
     $('mealName').value = '';
-    alert('Couldn’t reach Bedrock — check your API key in Settings.');
+    alert('Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.');
   }
 }
 
@@ -928,20 +1030,20 @@ async function openFoodScanCamera() {
 }
 
 async function suggestMealClick() {
-  if (!Store.getApiKey()) { alert('Add your Claude API key in Settings first.'); return; }
+  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   $('mealSuggestResult').hidden = false;
   $('mealSuggestResult').textContent = 'Thinking…';
   const res = await Nutrition.suggestMeal(ACTIVE);
-  $('mealSuggestResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check your API key in Settings.';
+  $('mealSuggestResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
 async function aiSupplementsClick() {
-  if (!Store.getApiKey()) { alert('Add your Claude API key in Settings first.'); return; }
+  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   $('aiSupplementResult').hidden = false;
   $('aiSupplementResult').textContent = 'Thinking…';
   const sys = BEDROCK_PERSONA + ' You will get a data summary and a fixed supplement reference list has already been shown to the user separately. Recommend at most 2-3 supplements from mainstream sports-nutrition evidence (not exotic/unproven ones) that best fit this specific person\'s goal and gaps, and say briefly why each one. End with a one-line reminder that food and training come first. Under 130 words.';
   const res = await BedrockAPI.chat([{ role: 'user', content: Insights.summaryText(ACTIVE) }], sys);
-  $('aiSupplementResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check your API key in Settings.';
+  $('aiSupplementResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
 /* ---------------------------------------------------------------- */
@@ -959,7 +1061,7 @@ function renderChat() {
   log.innerHTML = '';
   const history = ACTIVE.history.chats || [];
   if (!history.length) {
-    log.innerHTML = '<div class="chat-bubble chat-ai">Ask me anything about your plan, form, recovery, or food — I can see your logged data. Add your API key in Settings if you haven’t yet.</div>';
+    log.innerHTML = '<div class="chat-bubble chat-ai">Ask me anything about your plan, form, recovery, or food — I can see your logged data. Sign in under Settings → Sync if you haven’t yet.</div>';
   }
   history.forEach(m => {
     const bubble = document.createElement('div');
@@ -981,12 +1083,12 @@ async function sendChat() {
   const input = $('chatInput');
   const text = input.value.trim();
   if (!text) return;
-  if (!Store.getApiKey()) { alert('Add your Claude API key in Settings first.'); return; }
+  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   ACTIVE.history.chats = ACTIVE.history.chats || [];
   ACTIVE.history.chats.push({ role: 'user', content: text, date: Date.now() });
   input.value = '';
   renderChat();
-  Store.upsertProfile(ACTIVE);
+  saveActive();
 
   // Data-grounded: every chat turn includes a fresh summary of the user's
   // actual logs (the same numbers driving their charts) so answers cite
@@ -995,8 +1097,8 @@ async function sendChat() {
   const sys = BEDROCK_PERSONA + `\n\nHere is the user's current data summary — this is exactly what feeds their charts on the Progress and Fuel tabs. Cite specific numbers from it directly in your answer (e.g. "your bench is up to X lb", "legs is Y% of your recent volume") rather than speaking generically. If the summary doesn't have what you'd need to answer precisely, say so plainly instead of guessing. End with one concrete, specific next action.\n\n${Insights.summaryText(ACTIVE)}\n\nKeep answers under ~130 words.`;
   const recent = ACTIVE.history.chats.slice(-10).map(m => ({ role: m.role, content: m.content }));
   const res = await BedrockAPI.chat(recent, sys);
-  ACTIVE.history.chats.push({ role: 'assistant', content: res.ok ? res.text : 'Couldn’t reach Bedrock — check your API key in Settings.', date: Date.now() });
-  Store.upsertProfile(ACTIVE);
+  ACTIVE.history.chats.push({ role: 'assistant', content: res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.', date: Date.now() });
+  saveActive();
   renderChat();
 }
 
@@ -1004,14 +1106,53 @@ async function sendChat() {
 /* Settings                                                            */
 /* ---------------------------------------------------------------- */
 function renderSettings() {
-  $('settingsApiKey').value = '';
-  $('keyStatus').textContent = Store.getApiKey() ? 'Key saved on this device.' : 'No key saved yet.';
+  renderSyncPanel();
   qs('#settingsUnitWeight').querySelectorAll('.unit-opt').forEach(b => b.classList.toggle('active', b.dataset.unit === ACTIVE.unitWeight));
   renderProfileManageList();
   renderCustomExerciseList();
   renderExcludedExerciseList();
   $('importStatus').textContent = '';
   renderFitbitPanel();
+}
+
+function renderSyncPanel() {
+  const loggedIn = Sync.isLoggedIn();
+  $('syncSignedOut').hidden = loggedIn;
+  $('syncSignedIn').hidden = !loggedIn;
+  if (loggedIn) {
+    $('syncStatus').textContent = `Signed in as ${Sync.getUsername()} — backed up and AI features unlocked.`;
+  } else {
+    $('settingsSyncUsername').value = '';
+    $('settingsSyncPassword').value = '';
+    $('syncStatus').textContent = Sync.backendUrl() ? 'Not signed in.' : 'No backend deployed yet — see cloudflare-worker/README.md.';
+  }
+}
+
+async function syncSignInClick() {
+  const username = $('settingsSyncUsername').value.trim();
+  const password = $('settingsSyncPassword').value;
+  if (!username || !password) { $('syncStatus').textContent = 'Enter a username and password.'; return; }
+  $('syncStatus').textContent = 'Signing in…';
+  const res = await Sync.login(username, password);
+  if (!res.ok) {
+    $('syncStatus').textContent = res.error === 'no_backend' ? 'No backend deployed yet — see cloudflare-worker/README.md.' : 'Incorrect username or password.';
+    return;
+  }
+  $('syncStatus').textContent = 'Syncing…';
+  const syncRes = await Sync.syncAfterLogin(ACTIVE);
+  if (syncRes.applied) { ACTIVE = Store.getActiveProfile(); renderDashboard(); }
+  renderSyncPanel();
+}
+
+async function syncSignOutClick() {
+  await Sync.logout();
+  renderSyncPanel();
+}
+
+async function syncNowClick() {
+  $('syncStatus').textContent = 'Syncing…';
+  await Sync.push(ACTIVE);
+  renderSyncPanel();
 }
 
 function renderFitbitPanel() {
@@ -1039,7 +1180,7 @@ async function fitbitSyncClick() {
   $('fitbitStatus').textContent = 'Syncing…';
   const res = await Fitbit.syncToProfile(ACTIVE);
   ACTIVE.fitbitLastAutoSyncAt = Date.now(); // manual sync also resets the auto-sync timer
-  Store.upsertProfile(ACTIVE);
+  saveActive();
   ACTIVE = Store.getActiveProfile();
   $('fitbitStatus').textContent = res.ok ? `Synced — ${res.added} new session(s).` : 'Sync failed — try reconnecting.';
   renderDashboard();
@@ -1054,7 +1195,7 @@ function renderCustomExerciseList() {
     row.innerHTML = `<span>${ex.name} (${ex.muscle})</span><button class="btn btn-ghost danger" style="padding:2px 8px;" data-delex="${ex.id}">Remove</button>`;
     row.querySelector('[data-delex]').addEventListener('click', () => {
       ACTIVE.customExercises = ACTIVE.customExercises.filter(e => e.id !== ex.id);
-      Store.upsertProfile(ACTIVE);
+      saveActive();
       renderCustomExerciseList();
     });
     wrap.appendChild(row);
@@ -1077,7 +1218,7 @@ function renderExcludedExerciseList() {
     row.innerHTML = `<span>${def ? def.name : id}</span><button class="btn btn-ghost" style="padding:2px 8px;" data-unex="${id}">Bring back</button>`;
     row.querySelector('[data-unex]').addEventListener('click', () => {
       ACTIVE.excludedExercises = ACTIVE.excludedExercises.filter(e => e !== id);
-      Store.upsertProfile(ACTIVE);
+      saveActive();
       renderExcludedExerciseList();
     });
     wrap.appendChild(row);
@@ -1093,7 +1234,7 @@ function addCustomExercise() {
     name, muscle: $('customExMuscle').value,
     equip: ['full', 'machines', 'dumbbell', 'bodyweight'], custom: true
   });
-  Store.upsertProfile(ACTIVE);
+  saveActive();
   $('customExName').value = '';
   renderCustomExerciseList();
 }
@@ -1183,7 +1324,7 @@ function importData(file) {
         });
       }
 
-      Store.upsertProfile(ACTIVE);
+      saveActive();
       $('importStatus').textContent = importedCount
         ? `Imported ${importedCount} session(s) from ${source}.`
         : `Read the ${source} file but found no recognizable sessions.`;
@@ -1247,8 +1388,12 @@ function init() {
   $('switcherBackdrop').addEventListener('click', e => { if (e.target.id === 'switcherBackdrop') $('switcherBackdrop').hidden = true; });
   $('btnSettings').addEventListener('click', () => { showView('settings'); renderSettings(); });
   $('btnGoConnectFitbit').addEventListener('click', () => { showView('settings'); renderSettings(); $('fitbitClientId').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+  $('btnFitbitBreakdown').addEventListener('click', askFitbitBreakdown);
+  $('btnToggleTheme').addEventListener('click', toggleTheme);
+  applyStoredTheme();
 
   $('btnStartWorkout').addEventListener('click', startWorkout);
+  $('navFab').addEventListener('click', startWorkout);
   qs('[data-close-workout]').addEventListener('click', () => { skipRestTimer(); ACTIVE_WORKOUT = null; showView('dashboard'); renderDashboard(); });
   $('btnFinishWorkout').addEventListener('click', finishWorkout);
   $('btnRestSkip').addEventListener('click', skipRestTimer);
@@ -1299,11 +1444,10 @@ function init() {
   $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
   qs('[data-close-settings]').addEventListener('click', () => showView('dashboard'));
-  $('btnSaveKey').addEventListener('click', () => {
-    Store.setApiKey($('settingsApiKey').value.trim());
-    renderSettings();
-  });
-  wireUnitToggle('settingsUnitWeight', unit => { ACTIVE.unitWeight = unit; Store.upsertProfile(ACTIVE); renderDashboard(); });
+  $('btnSyncSignIn').addEventListener('click', syncSignInClick);
+  $('btnSyncSignOut').addEventListener('click', syncSignOutClick);
+  $('btnSyncNow').addEventListener('click', syncNowClick);
+  wireUnitToggle('settingsUnitWeight', unit => { ACTIVE.unitWeight = unit; saveActive(); renderDashboard(); });
   $('btnAddProfile').addEventListener('click', () => {
     ONBOARD_DRAFT = Store.createBlankProfile();
     ONBOARD_STEP = 1;
@@ -1320,7 +1464,7 @@ function init() {
   $('btnResetProfile').addEventListener('click', () => {
     if (confirm('Reset all workouts, check-ins, and chats for this profile? Your profile settings stay.')) {
       ACTIVE.history = { workouts: [], checkins: [], chats: [] };
-      Store.upsertProfile(ACTIVE);
+      saveActive();
       renderDashboard(); renderSettings();
     }
   });
@@ -1346,6 +1490,15 @@ function init() {
   Fitbit.handleRedirectIfPresent().then(connected => {
     if (connected && ACTIVE) { showView('settings'); renderSettings(); }
   });
+
+  // Already signed in from a previous visit (token persists in
+  // localStorage) — quietly pull whatever's newer from the cloud, e.g. a
+  // session logged on the other person's device or another phone.
+  if (Sync.isLoggedIn()) {
+    Sync.pull().then(res => {
+      if (res.applied) { ACTIVE = Store.getActiveProfile(); renderDashboard(); }
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

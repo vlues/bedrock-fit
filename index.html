@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#7c6a52">
 <title>Bedrock — Training, Built Right</title>
 <link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,300,0,0&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -18,7 +21,10 @@
       <span class="avatar" id="avatarInitial">P</span>
     </button>
     <div class="topbar-title" id="topbarTitle">Bedrock</div>
-    <button class="iconbtn" id="btnSettings" aria-label="Settings">⚙</button>
+    <div style="display:flex; gap:6px;">
+      <button class="iconbtn" id="btnToggleTheme" aria-label="Toggle dark mode"><span class="ms" id="themeIcon">dark_mode</span></button>
+      <button class="iconbtn" id="btnSettings" aria-label="Settings"><span class="ms">settings</span></button>
+    </div>
   </header>
 
   <!-- ===== ONBOARDING ===== -->
@@ -27,7 +33,7 @@
 
       <div class="onboard-step" data-step="0">
         <div class="brand">
-          <div class="brand-mark">⛰</div>
+          <div class="brand-mark"><span class="ms" style="color:#fff; font-size:30px;">landscape</span></div>
           <h1>Bedrock</h1>
           <p class="tagline">A training plan built on you, not a template.</p>
         </div>
@@ -174,10 +180,18 @@
 
       <div class="onboard-step" data-step="7" hidden>
         <h2>One more thing</h2>
-        <p class="onboard-copy">Bedrock can ask a couple of AI follow-up questions to sharpen your plan (diet pattern, schedule quirks, past injuries). This needs an Anthropic API key — you can add one now or skip and add it later in Settings.</p>
-        <button class="btn btn-secondary btn-block" id="ob-add-key">Add API key now</button>
+        <p class="onboard-copy">If your household has a Bedrock account set up, sign in to back your data up and unlock Bedrock's AI layer (follow-up questions, coaching, meal/supplement suggestions). Everything also works fully offline without one — skip it and sign in later from Settings any time.</p>
+        <label class="field">
+          <span>Username</span>
+          <input type="text" id="ob-sync-username" autocapitalize="off" autocomplete="username">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="ob-sync-password" autocomplete="current-password">
+        </label>
+        <button class="btn btn-secondary btn-block" id="ob-sync-signin">Sign in</button>
+        <p class="key-status" id="obSyncStatus"></p>
         <p class="muted-copy" style="margin-top:14px;">Got a Fitbit? Connect it in Settings any time afterward — Home will remind you with a banner until you do.</p>
-        <button class="btn btn-ghost btn-block" id="ob-skip-key">Skip for now</button>
         <div class="btn-row">
           <button class="btn btn-ghost" data-back>Back</button>
           <button class="btn btn-primary" data-next id="ob-finish">Build my plan</button>
@@ -207,6 +221,14 @@
         <button class="btn btn-secondary btn-block" id="btnGoConnectFitbit">Connect Fitbit</button>
       </div>
 
+      <div class="card" id="fitbitTodayCard" hidden>
+        <div class="card-head"><h3>⌚ Today, from your Fitbit</h3><span class="badge-optional">⌚ wearable</span></div>
+        <div id="fitbitTodayStats" style="display:flex; justify-content:space-between; text-align:center; gap:6px;"></div>
+        <p class="muted-copy" id="fitbitTodayNote" style="margin-top:12px;"></p>
+        <button class="btn btn-secondary btn-block" id="btnFitbitBreakdown" style="margin-top:6px;">🤖 Ask Bedrock to break this down</button>
+        <p class="ai-result" id="fitbitBreakdownResult" hidden></p>
+      </div>
+
       <div class="card" id="readinessCard" hidden>
         <div class="card-head"><h3>Training load</h3><span class="badge-optional">ACWR · sports-science</span></div>
         <div id="readinessBody"></div>
@@ -228,11 +250,11 @@
 
       <div class="card-grid">
         <button class="tile" id="tileProgress">
-          <span class="tile-icon">📈</span>
+          <span class="tile-icon ms">trending_up</span>
           <span>Progress</span>
         </button>
         <button class="tile" id="tileSupplements">
-          <span class="tile-icon">🌿</span>
+          <span class="tile-icon ms">nutrition</span>
           <span>Fuel</span>
         </button>
       </div>
@@ -451,7 +473,7 @@
       </div>
       <div class="card">
         <h3>5. Bedrock's AI features (optional)</h3>
-        <p class="muted-copy">Add your Anthropic API key in Settings to unlock: a daily insight on Home, data-grounded chat under Ask, photo feedback and trend commentary under Progress, and meal suggestions under Fuel. Everything works without a key too — you just lose the AI layer.</p>
+        <p class="muted-copy">Sign in under Settings → Sync to unlock: a daily insight on Home, data-grounded chat under Ask, photo feedback and trend commentary under Progress, and meal suggestions under Fuel. Everything works without an account too — you just lose the AI layer.</p>
       </div>
       <div class="card">
         <h3>6. Two profiles, one app</h3>
@@ -459,7 +481,7 @@
       </div>
       <div class="card">
         <h3>7. Where does each number come from?</h3>
-        <p class="muted-copy">Bedrock labels this on purpose so you always know what you're looking at: <b>📊 from your logs</b> means it's computed straight from what you've entered (workouts, check-ins) or synced from Fitbit — pure math, no AI. <b>⌚</b> marks anything pulled from a connected wearable. <b>🤖</b> marks anything Bedrock generated — commentary, suggestions, estimates — which is always optional and always has a non-AI fallback if you skip the API key.</p>
+        <p class="muted-copy">Bedrock labels this on purpose so you always know what you're looking at: <b>📊 from your logs</b> means it's computed straight from what you've entered (workouts, check-ins) or synced from Fitbit — pure math, no AI. <b>⌚</b> marks anything pulled from a connected wearable. <b>🤖</b> marks anything Bedrock generated — commentary, suggestions, estimates — which is always optional and always has a non-AI fallback if you're not signed in.</p>
       </div>
       <div class="card">
         <h3>8. Training load & plateau detection</h3>
@@ -475,14 +497,18 @@
       <h2>Settings</h2>
 
       <div class="card">
-        <h3>Claude API key</h3>
-        <p class="muted-copy">Stored only in this browser, on this phone. Never sent anywhere except directly to Anthropic when Bedrock asks a question on your behalf.</p>
-        <label class="field">
-          <span>API key</span>
-          <input type="password" id="settingsApiKey" placeholder="sk-ant-…">
-        </label>
-        <button class="btn btn-primary btn-block" id="btnSaveKey">Save key</button>
-        <p class="key-status" id="keyStatus">No key saved yet.</p>
+        <h3>☁️ Sync your data</h3>
+        <p class="muted-copy" id="syncExplainer">Sign in to back this profile up off-device and unlock Bedrock's AI layer (insight, chat, photo feedback, meal/supplement suggestions). There's no public sign-up — accounts are created by whoever set up your household's Bedrock backend.</p>
+        <div id="syncSignedOut">
+          <label class="field"><span>Username</span><input type="text" id="settingsSyncUsername" autocapitalize="off" autocomplete="username"></label>
+          <label class="field"><span>Password</span><input type="password" id="settingsSyncPassword" autocomplete="current-password"></label>
+          <button class="btn btn-primary btn-block" id="btnSyncSignIn">Sign in</button>
+        </div>
+        <div id="syncSignedIn" hidden>
+          <button class="btn btn-secondary btn-block" id="btnSyncNow">Sync now</button>
+          <button class="btn btn-ghost btn-block" id="btnSyncSignOut">Sign out</button>
+        </div>
+        <p class="key-status" id="syncStatus">Not signed in.</p>
       </div>
 
       <div class="card">
@@ -590,15 +616,18 @@
 
   <!-- ===== BOTTOM NAV ===== -->
   <nav class="bottomnav" id="bottomnav" hidden>
-    <button class="navbtn active" data-nav="dashboard"><span>🏠</span><small>Home</small></button>
-    <button class="navbtn" data-nav="progress"><span>📈</span><small>Progress</small></button>
-    <button class="navbtn" data-nav="supplements"><span>🌿</span><small>Fuel</small></button>
-    <button class="navbtn" data-nav="chat"><span>💬</span><small>Ask</small></button>
+    <button class="navbtn active" data-nav="dashboard"><span class="ms">cottage</span><small>Home</small></button>
+    <button class="navbtn" data-nav="progress"><span class="ms">trending_up</span><small>Progress</small></button>
+    <div class="nav-fab-spacer"></div>
+    <button class="navbtn" data-nav="supplements"><span class="ms">nutrition</span><small>Fuel</small></button>
+    <button class="navbtn" data-nav="chat"><span class="ms">forum</span><small>Ask</small></button>
   </nav>
+  <button class="nav-fab" id="navFab" aria-label="Start workout" hidden><span class="ms">play_arrow</span></button>
 
 </div>
 
 <script src="js/store.js"></script>
+<script src="js/sync.js"></script>
 <script src="js/api.js"></script>
 <script src="js/workout.js"></script>
 <script src="js/supplements.js"></script>

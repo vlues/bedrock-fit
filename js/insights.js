@@ -5,6 +5,53 @@
 
 const Insights = (() => {
 
+  // Rough, aggregated set-count/week landmarks (MEV = minimum effective volume,
+  // MRV = maximum recoverable volume) per muscle bucket — adapted from the
+  // set-volume-landmark research popularized in strength & conditioning
+  // circles (e.g. Renaissance Periodization's per-muscle-group work), summed
+  // across whatever muscles Bedrock's coarser push/pull/legs/core buckets
+  // cover. These are intentionally wide bands, not a precise prescription —
+  // see the caveat baked into the caption text below.
+  const VOLUME_LANDMARKS = {
+    push: { mev: 10, mrv: 34 },
+    pull: { mev: 10, mrv: 30 },
+    legs: { mev: 10, mrv: 40 },
+    core: { mev: 4, mrv: 25 }
+  };
+
+  // Total logged SETS per muscle bucket in the last 7 days — the unit these
+  // volume landmarks are actually published in (unlike muscleVolumeBreakdown's
+  // weight×reps tonnage, which isn't comparable across people/exercises).
+  function weeklySetsByMuscle(profile) {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    const byMuscle = {};
+    (profile.history.workouts || []).filter(w => w.date >= cutoff).forEach(w => {
+      (w.exercises || []).forEach(ex => {
+        const def = Workout.EX.find(e => e.id === ex.id) || (profile.customExercises || []).find(e => e.id === ex.id);
+        const muscle = def ? def.muscle : 'other';
+        byMuscle[muscle] = (byMuscle[muscle] || 0) + (ex.sets || []).length;
+      });
+    });
+    return byMuscle;
+  }
+
+  // One-line read on whether this week's set counts land in, under, or over
+  // the rough landmark band for each bucket that has a defined one.
+  function volumeLandmarkNote(profile) {
+    const sets = weeklySetsByMuscle(profile);
+    const notes = Object.entries(VOLUME_LANDMARKS)
+      .filter(([muscle]) => sets[muscle] != null)
+      .map(([muscle, band]) => {
+        const n = sets[muscle];
+        if (n < band.mev) return `${muscle} is under its minimum-effective band (${n} of ~${band.mev}+ sets/wk) — probably too little to drive progress there.`;
+        if (n > band.mrv) return `${muscle} is above its typical recoverable ceiling (${n} vs ~${band.mrv} sets/wk) — fine occasionally, but not sustainable every week.`;
+        return null;
+      })
+      .filter(Boolean);
+    if (!notes.length) return null;
+    return notes[0] + ' Rough, aggregated bands (📊 from your logs) — not a precise prescription.';
+  }
+
   function muscleVolumeBreakdown(profile, days = 28) {
     const cutoff = Date.now() - days * 24 * 3600 * 1000;
     const byMuscle = {};
@@ -62,12 +109,18 @@ const Insights = (() => {
     return `Holding steady at ${last} ${unit} — due for a small jump if reps have felt easy.`;
   }
 
-  function muscleBalanceCaption(byMuscle) {
+  function muscleBalanceCaption(byMuscle, profile) {
     const entries = Object.entries(byMuscle);
     if (!entries.length) return 'Log a few sessions to see how volume is spread across muscle groups.';
     entries.sort((a, b) => b[1] - a[1]);
     const [topMuscle] = entries[0];
     const [lowMuscle] = entries[entries.length - 1];
+    // A landmark call-out (under/over the rough weekly-set band) is the more
+    // actionable read when there's one to make — it says WHAT to do, not just
+    // which bucket has more tonnage this month. Falls back to the balance
+    // comparison when nothing's clearly outside a band, or no profile is passed.
+    const landmark = profile ? volumeLandmarkNote(profile) : null;
+    if (landmark) return landmark;
     if (entries.length < 2 || topMuscle === lowMuscle) return `Most of your recent volume is going to ${topMuscle}.`;
     return `${topMuscle} is getting the most volume lately; ${lowMuscle} is trailing — worth a look if you want balanced results.`;
   }
@@ -113,7 +166,7 @@ const Insights = (() => {
     const key = cacheKey(profile);
     const cached = localStorage.getItem(key);
     if (cached) return { ok: true, text: cached, cached: true };
-    if (!Store.getApiKey()) return { ok: true, text: ruleBasedInsight(profile), ruleBased: true };
+    if (!Sync.isLoggedIn()) return { ok: true, text: ruleBasedInsight(profile), ruleBased: true };
     const sys = BEDROCK_PERSONA + ' Given a structured data summary, write ONE short daily insight (2-3 sentences): what is going well, and one concrete thing to focus on today.';
     const res = await BedrockAPI.chat([{ role: 'user', content: summaryText(profile) }], sys);
     if (res.ok && res.text) { localStorage.setItem(key, res.text); return { ok: true, text: res.text }; }
@@ -175,7 +228,7 @@ const Insights = (() => {
   }
 
   return {
-    muscleVolumeBreakdown, exercisePRs, exerciseSeries, loggedExerciseOptions,
+    muscleVolumeBreakdown, weeklySetsByMuscle, volumeLandmarkNote, exercisePRs, exerciseSeries, loggedExerciseOptions,
     trendCaption, muscleBalanceCaption, summaryText, getDailyInsight, stalledExercises,
     checkNewPRs, workoutStreak
   };

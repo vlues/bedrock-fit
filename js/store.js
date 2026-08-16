@@ -9,20 +9,23 @@ function withTimeout(promise, ms, label) {
 }
 
 /* ===================== Bedrock — local storage / state ===================== */
-/* Everything lives in localStorage. No accounts, no server, no backend.
-   Structure:
+/* The source of truth is always localStorage on this device — the app is
+   fully usable offline, with or without an account. Structure:
    bedrock_profiles: [{ id, name, age, sex, weightLb, heightIn, goal, exp, days, equipment,
                          limitations, unitWeight, createdAt,
                          history: { workouts:[], checkins:[], chats:[] },
                          planSeed: number (for deterministic-ish variety) }]
    bedrock_activeProfileId: string
-   bedrock_api_key: string (shared across profiles on this device)
+
+   Signing in to an account (see js/sync.js) additionally backs the active
+   profile up to the Cloudflare Worker backend and unlocks Bedrock's AI
+   features — there's no personal API key stored here or anywhere else in
+   this app; js/sync.js's bedrock_sync_token is the only credential kept.
 */
 
 const Store = (() => {
   const PROFILES_KEY = 'bedrock_profiles';
   const ACTIVE_KEY = 'bedrock_activeProfileId';
-  const APIKEY_KEY = 'bedrock_api_key';
 
   function getProfiles() {
     try { return JSON.parse(localStorage.getItem(PROFILES_KEY)) || []; }
@@ -87,9 +90,6 @@ const Store = (() => {
     }
   }
 
-  function getApiKey() { return localStorage.getItem(APIKEY_KEY) || ''; }
-  function setApiKey(key) { localStorage.setItem(APIKEY_KEY, key || ''); }
-
   // ---------- unit conversions ----------
   const lbToKg = lb => lb * 0.453592;
   const kgToLb = kg => kg / 0.453592;
@@ -101,7 +101,7 @@ const Store = (() => {
   return {
     getProfiles, saveProfiles, getActiveId, setActiveId, getActiveProfile,
     upsertProfile, createBlankProfile, deleteProfile,
-    getApiKey, setApiKey, ensureShape,
+    ensureShape,
     lbToKg, kgToLb, inToCm, cmToIn, ftInToIn, inToFtIn
   };
 })();

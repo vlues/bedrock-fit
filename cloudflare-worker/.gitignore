@@ -1,0 +1,4 @@
+.admin-secret.local
+.worker-url.local
+node_modules/
+.wrangler/

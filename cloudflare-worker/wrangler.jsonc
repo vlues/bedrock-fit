@@ -1,0 +1,19 @@
+{
+  "name": "bedrock-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-16",
+  "observability": { "enabled": true },
+  "vars": {
+    // Rewritten automatically by deploy-backend.sh to your GitHub Pages URL
+    // (and localhost, for testing a local copy against the live API).
+    "ALLOWED_ORIGIN": "https://REPLACE_ME.github.io,http://localhost:8124"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bedrock-db",
+      // Filled in by deploy-backend.sh right after `wrangler d1 create`.
+      "database_id": "REPLACE_ME"
+    }
+  ]
+}

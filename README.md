@@ -2,8 +2,11 @@
 
 A private, two-profile fitness + nutrition app for you and your girlfriend. Onboarding, a
 research-based workout generator, progress check-ins, volume/trend charts, a supplement and
-nutrition guide, and an optional Claude-powered coach that gets sharper the more you log —
-all running as a static site, no backend, no accounts.
+nutrition guide, and an optional Claude-powered coach that gets sharper the more you log.
+The site itself is static (GitHub Pages, no build step) — a small optional Cloudflare Worker
+backend (`cloudflare-worker/`) adds accounts so your data survives a lost phone or a second
+device, and holds the Anthropic key so nobody ever pastes one into a browser. Design system:
+warm clay/olive glass UI, light + dark, built from a Claude Design project.
 
 ## What's inside
 
@@ -54,53 +57,60 @@ all running as a static site, no backend, no accounts.
   `js/fitbit.js`).
 - **Fitbit (Charge 6, etc.)** — real sync, not just import. Fitbit's Web API supports
   browser-only OAuth (no backend needed, unlike Apple Watch), so Settings → Connect Fitbit
-  logs you in and "Sync now" pulls recent activities straight into your volume trend. See
-  the setup steps and an important deprecation note below.
+  logs you in and "Sync now" pulls recent activities straight into your volume trend. Once
+  connected, Home also shows a "Today, from your Fitbit" card — steps, resting heart rate,
+  calories, refreshed on every open — plus a one-tap Claude breakdown of what today's numbers
+  mean next to your recent trend. (Genuinely continuous/intraday heart rate needs a separate
+  Fitbit approval this app doesn't request — this is the latest-synced numbers, not a live
+  stream; see `js/fitbit.js`.) See the setup steps and an important deprecation note below.
+- **Sync + accounts (optional)** — sign in (onboarding's last step, or Settings → Sync) to
+  back this profile up off-device and unlock every Claude feature — there's no personal API
+  key anywhere in this app anymore. See "Accounts, sync & Claude" below.
 - **Wearable import** — Settings → drag-and-drop a Garmin Connect CSV export or an Apple
   Health `export.xml`; sessions fold straight into your volume trend.
 - **In-app Guide** — Settings → "Open the guide" walks through every feature.
 
-## Claude API key — how it works here
+## Accounts, sync & Claude — how it works here
 
-This is a static site (GitHub Pages has no server), so by default each person pastes their
-own Anthropic API key into **Settings**; it's saved with `localStorage` on that phone only
-and calls `api.anthropic.com` directly from the browser via Anthropic's
-`anthropic-dangerous-direct-browser-access` header — documented for prototyping, not
-production, because **anyone with that phone's browser dev tools could read the key out of
-local storage**. Every Claude feature (insight, chat, photo feedback, meal suggestions,
-supplement picks) has a working fallback without a key, so the app is fully usable either
-way.
+There is no personal API key anywhere in this app. Every Claude feature (insight, chat,
+photo feedback, meal suggestions, supplement picks, the Fitbit breakdown) routes through one
+small Cloudflare Worker (`cloudflare-worker/`) that holds the real Anthropic key server-side
+and only answers requests from a signed-in account — so a public GitHub Pages URL can't be
+used by a stranger to spend your Anthropic budget, and nobody's key is ever sitting in a
+browser's `localStorage` for dev tools to read out. Signing in is also what makes your
+profile survive a lost phone: it's synced to the same backend (last-write-wins, keyed by
+when each device last saved). Everything still works with **zero setup and zero account**
+too — every AI feature has a working non-AI fallback (see `js/insights.js`'s
+`ruleBasedInsight` for the pattern), and your data stays fully usable in `localStorage` on
+just this device.
 
-### Optional: hide your API key behind a real backend
-
-If you want the key off the device entirely, add a tiny proxy — `worker-example/` has a
-ready-to-deploy Cloudflare Worker.
-
-**Easy way — one script, one field:**
+### One-time backend setup — one script, one field
 
 ```bash
-cd worker-example
-./deploy-worker.sh
+cd cloudflare-worker
+./deploy-backend.sh
 ```
 
-It figures out your GitHub Pages URL, opens a Cloudflare login in your browser (you approve
-it), and asks for exactly one thing — your Anthropic API key, typed at a hidden prompt. The
-key is piped straight into Cloudflare's encrypted secret store (`wrangler secret put`) and
-never written to any file, ever. It then patches `js/api.js` to point at your new worker and
-redeploys the site for you. Re-run it any time to rotate the key or redeploy.
+It provisions the D1 database, generates the admin secret that gates account creation,
+auto-detects your GitHub Pages origin, and deploys — asking for exactly **one thing**: your
+Anthropic API key, typed at a hidden prompt. The key is piped straight into Cloudflare's
+encrypted secret store (`wrangler secret put`) and never written to any file, ever. It then
+patches `js/sync.js` to point at your new backend and redeploys the site for you. Re-run it
+any time to redeploy backend code changes.
 
-**Manual way**, if you'd rather not run the script:
+### Adding an account for each person
 
-1. Create a free Cloudflare account → Workers & Pages → **Create Worker**.
-2. Paste in `worker-example/cloudflare-worker.js`.
-3. Workers → your worker → Settings → Variables → add a secret `ANTHROPIC_API_KEY` (your
-   real key) and a variable `ALLOWED_ORIGIN` set to your GitHub Pages URL.
-4. Deploy — you'll get a URL like `https://bedrock-proxy.<you>.workers.dev`.
-5. In `js/api.js`, set `PROXY_ENDPOINT` to that URL (leave `ENDPOINT` alone — it's unused
-   once `PROXY_ENDPOINT` is set).
-6. Redeploy the site. Nobody's key is ever in the browser now.
+```bash
+cd cloudflare-worker
+./create-account.sh yourname
+```
 
-This is optional either way — skip it entirely for personal use with a spending-capped key.
+Prompts for a password with input hidden — nothing echoed or logged. Run once per person
+(you, your girlfriend). There's no public sign-up on purpose. Full details, data model, and
+the manual (no-script) setup path: `cloudflare-worker/README.md`.
+
+This backend is optional either way — skip it entirely and the app runs fully offline,
+single-device, AI-free.
 
 ### Demo / walkthrough
 
@@ -187,20 +197,22 @@ bedrock-fit/
   index.html
   manifest.json
   CLAUDE.md
-  css/style.css
+  deploy.sh                 zero-field GitHub Pages deploy script
+  css/style.css              theme: oklch clay/olive palette, light + dark, glass cards
   js/store.js         profiles, units, localStorage
-  js/api.js            Claude API wrapper + shared coach persona
-  js/workout.js         exercise DB + program generator
+  js/sync.js            account login/logout + cloud profile push/pull (see cloudflare-worker/)
+  js/api.js             Claude API wrapper + shared coach persona — routes through the backend only
+  js/workout.js         exercise DB + program generator + double-progression/deload logic
   js/supplements.js     supplement data
   js/chart.js            dependency-free line + bar charts
   js/scan.js              photo capture/compression, check-ins
   js/trajectory.js        volume tracking + projection math
-  js/insights.js          data summary + cached daily insight
+  js/insights.js          data summary + cached daily insight + volume-landmark check
   js/nutrition.js         TDEE/macros, water, meals, food-photo estimate
-  js/fitbit.js             Fitbit OAuth (PKCE) + activity sync
+  js/fitbit.js             Fitbit OAuth (PKCE) + activity sync + today's live-ish summary
   js/camera.js              in-page camera viewfinder + overlay guides
   js/app.js               UI controller / router
-  worker-example/cloudflare-worker.js   optional backend proxy
+  cloudflare-worker/         optional backend: accounts, profile sync, Anthropic proxy (see its README)
   test/logic-audit.js      Node smoke test for the data/logic layer
   claude-design-prompt.md  copy-paste prompt for a UI-only redesign pass
 ```

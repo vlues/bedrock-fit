@@ -35,12 +35,12 @@ vm.createContext(sandbox);
 // vm's runInContext doesn't expose top-level const/let as globals (only
 // `var`/functions do), and these files use `const X = (() => {...})();` —
 // so concatenate them into one script and explicitly export what we need.
-const files = ['js/store.js', 'js/api.js', 'js/workout.js', 'js/supplements.js', 'js/trajectory.js', 'js/fitbit.js', 'js/nutrition.js', 'js/insights.js'];
+const files = ['js/store.js', 'js/sync.js', 'js/api.js', 'js/workout.js', 'js/supplements.js', 'js/trajectory.js', 'js/fitbit.js', 'js/nutrition.js', 'js/insights.js'];
 const combined = files.map(f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n;\n')
-  + '\n;\nthis.__EXPORTS__ = { Store, Workout, Trajectory, Insights, Nutrition, Fitbit, SupplementList };';
+  + '\n;\nthis.__EXPORTS__ = { Store, Sync, Workout, Trajectory, Insights, Nutrition, Fitbit, SupplementList };';
 vm.runInContext(combined, sandbox, { filename: 'combined.js' });
 
-const { Store, Workout, Trajectory, Insights, Nutrition, Fitbit, SupplementList } = sandbox.__EXPORTS__;
+const { Store, Sync, Workout, Trajectory, Insights, Nutrition, Fitbit, SupplementList } = sandbox.__EXPORTS__;
 
 // ---- unit conversions round-trip ----
 assert(Math.abs(Store.kgToLb(Store.lbToKg(180)) - 180) < 0.001, 'lb<->kg round-trip');
@@ -164,7 +164,6 @@ SupplementList.forEach(s => {
 ok('SupplementList data integrity');
 
 // ---- Fitbit: PKCE + redirect helpers must not throw without a real browser ----
-Store.setApiKey(''); // ensure clean
 assert(Fitbit.isConnected() === false, 'Fitbit reports disconnected with no stored token');
 ok('Fitbit module loads and reports state correctly with no token');
 
@@ -184,6 +183,28 @@ assert(Workout.restSecondsFor('strength') > Workout.restSecondsFor('fatloss'), '
 assert(Workout.restSecondsFor('unknown-goal') > 0, 'restSecondsFor falls back to a sane default for an unrecognized goal');
 ok('Workout.restSecondsFor sane, goal-differentiated values');
 
+// ---- Workout.suggestWeight: double-progression bump + 2-session-stall deload ----
+const swSession = (weight, reps, targetRepsMin, date) => ({
+  dayIndex: 0, label: 'Session', date,
+  exercises: [{ id: 'benchpress', name: 'Barbell Bench Press', targetRepsMin, sets: [{ reps, weight }, { reps, weight }] }]
+});
+const bumpProf = { ...Store.createBlankProfile(), history: { ...Store.createBlankProfile().history, workouts: [swSession(135, 8, 8, now - 7 * 24 * 3600 * 1000)] } };
+const bumped = Workout.suggestWeight(bumpProf, 'benchpress');
+assert(bumped > 135, `hitting the top of the rep range suggests a weight increase, got ${bumped}`);
+
+const holdProf = { ...Store.createBlankProfile(), history: { ...Store.createBlankProfile().history, workouts: [swSession(135, 6, 8, now - 7 * 24 * 3600 * 1000)] } };
+const held = Workout.suggestWeight(holdProf, 'benchpress');
+assert(held === 135, `one missed session alone holds at the same weight, got ${held}`);
+
+const stallProf = { ...Store.createBlankProfile(), history: { ...Store.createBlankProfile().history, workouts: [
+  swSession(135, 6, 8, now - 14 * 24 * 3600 * 1000),
+  swSession(135, 6, 8, now - 7 * 24 * 3600 * 1000)
+] } };
+const deloaded = Workout.suggestWeight(stallProf, 'benchpress');
+assert(deloaded < 135, `two straight missed sessions at the same weight suggests a deload, got ${deloaded}`);
+assert(deloaded >= 135 * 0.85, `deload is a modest ~10% back-off, not a crash, got ${deloaded}`);
+ok('Workout.suggestWeight double-progression bump + stall-deload logic');
+
 // ---- Insights: PR detection compares against PRIOR history only, and streak counts consecutive weeks ----
 const priorHistoryProf = { ...Store.createBlankProfile(), history: { ...Store.createBlankProfile().history, workouts: [
   { dayIndex: 0, label: 'Session', date: now - 5 * 24 * 3600 * 1000, exercises: [{ id: 'benchpress', name: 'Barbell Bench Press', sets: [{ reps: 8, weight: 100 }] }] }
@@ -197,6 +218,20 @@ for (let w = 0; w < 3; w++) streakProf.history.workouts.push({ dayIndex: 0, labe
 assert(Insights.workoutStreak(streakProf) === 3, `workoutStreak counts 3 consecutive logged weeks, got ${Insights.workoutStreak(streakProf)}`);
 assert(Insights.workoutStreak(Store.createBlankProfile()) === 0, 'workoutStreak is 0 with no logged history');
 ok('Insights.checkNewPRs + Insights.workoutStreak correctness');
+
+// ---- Insights.volumeLandmarkNote: flags a bucket under its MEV band ----
+const underProf = { ...Store.createBlankProfile(), history: { ...Store.createBlankProfile().history, workouts: [
+  { dayIndex: 0, label: 'Session', date: now - 1 * 24 * 3600 * 1000, exercises: [{ id: 'benchpress', name: 'Barbell Bench Press', targetRepsMin: 8, sets: [{ reps: 8, weight: 135 }] }] }
+] } };
+const note = Insights.volumeLandmarkNote(underProf);
+assert(typeof note === 'string' && note.includes('push'), `volumeLandmarkNote flags an under-MEV bucket by name, got ${JSON.stringify(note)}`);
+assert(Insights.volumeLandmarkNote(Store.createBlankProfile()) === null, 'volumeLandmarkNote is null with no recent logged sets');
+ok('Insights.volumeLandmarkNote flags under/over-band muscle groups');
+
+// ---- Sync: safe, inert defaults before a backend is deployed / signed in ----
+assert(Sync.isLoggedIn() === false, 'Sync reports logged-out with no backend configured and no token');
+assert(Sync.getUsername() === '', 'Sync reports no username when logged out');
+ok('Sync module loads and reports safe defaults with no backend/token');
 
 console.log('\n' + (failures === 0 ? `ALL CHECKS PASSED` : `${failures} CHECK(S) FAILED`));
 process.exit(failures === 0 ? 0 : 1);

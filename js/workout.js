@@ -168,25 +168,47 @@ const Workout = (() => {
     return plan[idx];
   }
 
-  // suggest a weight for an exercise based on last logged performance (simple progressive overload)
+  // Suggest a weight for an exercise from logged performance — double-progression
+  // auto-regulation, not just "repeat last time":
+  //  - hit the top of the rep range on every set last session → nudge up ~2.5-5%
+  //    (classic double-progression: raise weight only after earning it with reps)
+  //  - missed the rep range on the SAME weight for the last two logged sessions in
+  //    a row → back off ~10% instead of asking for a third grind at a weight
+  //    that's stalled (a small, standard autoregulation deload, not just
+  //    silently repeating a number that isn't working)
+  //  - anything else → hold at last week's weight
   function suggestWeight(profile, exerciseId) {
     const workouts = profile.history.workouts || [];
-    for (let i = workouts.length - 1; i >= 0; i--) {
+    const logged = [];
+    for (let i = workouts.length - 1; i >= 0 && logged.length < 2; i--) {
       const entry = workouts[i].exercises?.find(e => e.id === exerciseId);
-      if (entry && entry.sets?.length) {
-        const lastSets = entry.sets;
-        const weights = lastSets.map(s => Number(s.weight) || 0);
-        const reps = lastSets.map(s => Number(s.reps) || 0);
-        const topWeight = Math.max(...weights);
-        const hitTopReps = reps.every(r => r >= (entry.targetRepsMin || 8));
-        if (topWeight > 0) {
-          // if they hit the top of the rep range on all sets last time, nudge weight up ~2.5-5%
-          const bump = hitTopReps ? Math.max(2.5, Math.round(topWeight * 0.03)) : 0;
-          return Math.round((topWeight + bump) * 2) / 2; // round to nearest 0.5
-        }
+      if (entry && entry.sets?.length) logged.push(entry);
+    }
+    if (!logged.length) return null; // no history yet
+
+    const last = logged[0];
+    const lastWeights = last.sets.map(s => Number(s.weight) || 0);
+    const lastReps = last.sets.map(s => Number(s.reps) || 0);
+    const topWeight = Math.max(...lastWeights);
+    if (topWeight <= 0) return null;
+    const hitTopReps = lastReps.every(r => r >= (last.targetRepsMin || 8));
+    if (hitTopReps) {
+      const bump = Math.max(2.5, Math.round(topWeight * 0.03));
+      return Math.round((topWeight + bump) * 2) / 2; // round to nearest 0.5
+    }
+
+    const prev = logged[1];
+    if (prev) {
+      const prevTopWeight = Math.max(...prev.sets.map(s => Number(s.weight) || 0));
+      const prevReps = prev.sets.map(s => Number(s.reps) || 0);
+      const prevMissed = !prevReps.every(r => r >= (prev.targetRepsMin || 8));
+      // Two in a row at the same (or higher) weight, neither hitting the range.
+      if (prevMissed && prevTopWeight >= topWeight - 0.01) {
+        const deload = Math.round((topWeight * 0.9) * 2) / 2;
+        return Math.max(deload, 2.5);
       }
     }
-    return null; // no history yet
+    return topWeight; // hold — one missed session isn't a trend yet
   }
 
   // Numeric rest-interval seconds matching the ranges already shown in
