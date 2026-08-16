@@ -1014,9 +1014,9 @@ async function comparePhotosClick() {
   if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   $('comparePhotosResult').hidden = false;
   $('comparePhotosResult').textContent = 'Comparing…';
-  const sys = BEDROCK_PERSONA + ' You will see two standing progress photos, oldest first. Give a brief, honest, directional impression of visible change (e.g. posture, general visible tone/fullness) — 3 sentences max. Do NOT estimate a body fat percentage or give a medical/diagnostic read; you are not a validated body-composition tool, just giving a casual visual impression. If the photos are too inconsistent (angle/distance/lighting) to compare fairly, say so.';
+  const sys = BEDROCK_PERSONA + ' You will see two standing progress photos, oldest first. Give a brief, honest, directional impression of visible change (e.g. posture, general visible tone/fullness) — 2 sentences max, no preamble. Do NOT estimate a body fat percentage or give a medical/diagnostic read; you are not a validated body-composition tool, just giving a casual visual impression. If the photos are too inconsistent (angle/distance/lighting) to compare fairly, say so.';
   const res = await BedrockAPI.ask({
-    system: sys, maxTokens: 300,
+    system: sys, maxTokens: 150,
     messages: [{
       role: 'user',
       content: [

@@ -242,6 +242,11 @@ a{ color: var(--accent-text); }
 }
 .btn:active{ transform: scale(0.96); }
 .btn-block{ width:100%; display:block; }
+/* Consecutive block buttons (stacked, no wrapping .btn-row) had no gap at
+   all between them by default — they touched edge to edge, relying on
+   manual margin-top sprinkled inconsistently on some but not others. One
+   rule, applies everywhere. */
+.btn-block + .btn-block{ margin-top: 10px; }
 .btn-primary{ background: var(--clay-grad); color: #fff; box-shadow: 0 10px 26px var(--clay-grad-shadow); }
 .btn-secondary{ background: var(--pill-olive); color: var(--olive-text); }
 .btn-ghost{ background: transparent; color: var(--muted-text); padding-left:6px; box-shadow:none; }
@@ -394,16 +399,21 @@ a{ color: var(--accent-text); }
 
 /* ---------- rest timer + PR/streak toast ---------- */
 .rest-timer-bar{
+  /* Deliberately fixed, not var(--text)/var(--bg): this bar is meant to
+     always look the same (dark bar, light text) regardless of theme, like a
+     toast. It used to reuse the theme tokens directly, which flip in dark
+     mode — text/bg tokens swap meaning, so the "always dark" bar became a
+     bright light-mode-colored bar sitting in the middle of a dark UI. */
   position: sticky; bottom: 0; left: 0; right: 0; z-index: 20; margin-top: 10px;
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  background: var(--text); color: var(--bg); border-radius: var(--radius-md);
+  background: oklch(0.22 0.02 58); color: oklch(0.96 0.012 78); border-radius: var(--radius-md);
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  box-shadow: var(--card-shadow); animation: fadein .2s var(--ease);
+  box-shadow: 0 8px 24px oklch(0 0 0 / 0.35); animation: fadein .2s var(--ease);
 }
 .rest-timer-bar #restTimerLabel{ font-weight:700; font-size:14px; letter-spacing:.2px; }
 .rest-timer-actions{ display:flex; gap:8px; }
 .rest-timer-btn{
-  background: color-mix(in oklch, var(--bg) 15%, transparent); color: var(--bg); border: 1px solid color-mix(in oklch, var(--bg) 30%, transparent);
+  background: oklch(0.96 0.012 78 / 0.15); color: oklch(0.96 0.012 78); border: 1px solid oklch(0.96 0.012 78 / 0.3);
   border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight:600; cursor:pointer;
 }
 .pr-toast{
