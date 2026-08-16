@@ -122,8 +122,10 @@ echo "✅ Backend live at: $WORKER_URL"
 # 7. Point the site at the backend
 # ---------------------------------------------------------------------
 SYNC_JS="$REPO_ROOT/js/sync.js"
-if [ -f "$SYNC_JS" ] && grep -q "const BACKEND_URL = " "$SYNC_JS"; then
-  sed -i.bak -E "s#const BACKEND_URL = '[^']*';#const BACKEND_URL = '$WORKER_URL';#" "$SYNC_JS"
+# Matches either the pristine `null` (first-ever run) or an already-quoted
+# URL (re-runs, e.g. after redeploying the worker under a new name).
+if [ -f "$SYNC_JS" ] && grep -Eq "const BACKEND_URL = (null|'[^']*');" "$SYNC_JS"; then
+  sed -i.bak -E "s#const BACKEND_URL = (null|'[^']*');#const BACKEND_URL = '$WORKER_URL';#" "$SYNC_JS"
   rm -f "$SYNC_JS.bak"
   echo "✅ js/sync.js now points at your backend"
 else

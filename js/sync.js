@@ -12,7 +12,7 @@ const Sync = (() => {
   // Patched automatically by cloudflare-worker/deploy-backend.sh. Leave
   // null to run with sync/AI features off (pure offline mode) — e.g. before
   // the backend has been deployed yet.
-  const BACKEND_URL = null;
+  const BACKEND_URL = 'https://bedrock-api.streamedmusics.workers.dev';
 
   const TOKEN_KEY = 'bedrock_sync_token';
   const USERNAME_KEY = 'bedrock_sync_username';
