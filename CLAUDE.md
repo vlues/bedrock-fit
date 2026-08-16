@@ -118,15 +118,17 @@ are in `README.md`.
   app first.
 - Fitbit sync (`js/fitbit.js` + the worker's `/api/google-health/*` endpoints) already
   targets the Google Health API — Fitbit's old Web API is gone, this isn't a future
-  migration. It's genuinely new (Google's migration window closes ~Sept 2026) and not fully
-  documented publicly at time of writing: `src/index.js`'s `extractMetricValue` and the
-  handful of "best-effort, not individually confirmed" `dataType` ids in
-  `handleGoogleHealthToday`/`handleGoogleHealthActivities` are the known-soft spots. If a
-  stat is wrong or a sync silently returns nothing for a genuinely connected account, check
-  the Worker's Cloudflare dashboard logs for the raw upstream response before assuming the
-  request-building code is wrong — it's more likely one `dataType` id or response field name
-  needs correcting against developers.google.com/health's current reference. Also requires
-  the backend (Google's OAuth client is confidential — needs a client secret — so this can
-  never go back to being a pure-client-side integration like the old Fitbit one was).
+  migration. `handleGoogleHealthToday`'s six stats (steps, distance, calories, active
+  minutes, resting heart rate, HRV) are verified end-to-end against a real connected
+  account (2026-08-16) — every `dataType` id and response field was read directly out of
+  the live discovery doc (`curl health.googleapis.com/\$discovery/rest?version=v4 | python3`),
+  not guessed or taken from a summary. Sleep and SpO2 are permanently `null` on purpose —
+  confirmed NOT present in `DailyRollupDataPoint` at all, not a soft spot to "fix" later; a
+  real implementation would need a different (session/point-list) endpoint. If Google
+  changes this API again and a stat breaks: re-derive the same way (fetch the discovery doc
+  yourself and read the real JSON) rather than trusting a blog post or a paraphrase of one —
+  that's exactly what caused two broken rounds during this integration's own build. Also
+  requires the backend (Google's OAuth client is confidential — needs a client secret — so
+  this can never go back to being a pure-client-side integration like the old Fitbit one).
 - No food database / barcode scanning — meal calories are either typed in or a rough
   Claude vision estimate the user confirms. Don't overstate accuracy here.

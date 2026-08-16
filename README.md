@@ -177,12 +177,12 @@ That means it needs two things set up first: the backend (`deploy-backend.sh`, s
 No Fitbit? The "Connect your Fitbit" card on Home swipes away (or tap the ✕) and won't
 come back — Settings has a link to bring it back if you get one later.
 
-**Two honest caveats:** (1) this is a genuinely new API (Google's migration window closes
-September 2026) that isn't fully documented publicly yet — `cloudflare-worker/src/index.js`'s
-`handleGoogleHealthToday`/`extractMetricValue` explain exactly which fields are verified
-vs. best-effort, and what to do if a stat ever looks wrong. (2) "Today" numbers are the
-latest Fitbit-synced totals, not a continuous live stream — real intraday/continuous heart
-rate needs a separate Google approval this app doesn't request.
+Verified end-to-end against a real connected account — steps, distance, calories, active
+minutes, resting heart rate, HRV all confirmed live. Two things this genuinely can't do:
+sleep and SpO2 aren't exposed by this API's daily-rollup endpoint at all (not a bug, a real
+gap — see `cloudflare-worker/src/index.js`'s `handleGoogleHealthToday`), and "Today" numbers
+are the latest Fitbit-synced totals, not a continuous live stream — real intraday/continuous
+heart rate needs a separate Google approval this app doesn't request.
 
 ## Connecting Apple Watch or Garmin
 

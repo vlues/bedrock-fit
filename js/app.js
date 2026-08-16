@@ -326,6 +326,20 @@ async function renderFitbitToday() {
   ].filter(Boolean).join('');
   $('fitbitTodayNote').textContent = 'Numbers update as your Fitbit syncs through the day — this isn’t a continuous live stream (that needs Google Health’s separate intraday approval), just the latest synced totals. Some stats (active minutes, sleep, HRV, SpO2) depend on what your specific Fitbit model tracks. ⌚ from your Fitbit';
   loadFitbitBreakdown(false);
+  recordFitbitDailySnapshot(res);
+}
+
+// One row per calendar day (upserted, not appended) so the trend chart in
+// Progress has real history to draw — this is what makes "today"'s numbers
+// into an actual trend instead of a single floating stat.
+function recordFitbitDailySnapshot(today) {
+  const day = new Date().toDateString();
+  ACTIVE.history.fitbitDaily = ACTIVE.history.fitbitDaily || [];
+  const existing = ACTIVE.history.fitbitDaily.find(d => d.day === day);
+  const snapshot = { day, date: Date.now(), steps: today.steps, restingHeartRate: today.restingHeartRate, caloriesOut: today.caloriesOut, distanceKm: today.distanceKm, activeMinutes: today.activeMinutes, hrv: today.hrv };
+  if (existing) Object.assign(existing, snapshot);
+  else ACTIVE.history.fitbitDaily.push(snapshot);
+  saveActive();
 }
 
 function fitbitBreakdownCacheKey() { return `bedrock_fitbit_breakdown_${ACTIVE.id}_${new Date().toDateString()}`; }
@@ -358,13 +372,12 @@ async function loadFitbitBreakdown(force) {
   if (!msg) return;
   $('fitbitBreakdownResult').hidden = false;
   $('fitbitBreakdownResult').textContent = 'Thinking…';
-  const sys = BEDROCK_PERSONA + ' You will get today’s Fitbit numbers plus recent trend data. Give a short (3-4 sentence), practical read: how today looks relative to the recent trend, and whether it changes anything about training or recovery today. Resting heart rate trending up over days can flag under-recovery — mention that ONLY if the data actually suggests it. Not medical advice.';
+  const sys = BEDROCK_PERSONA + ' You will get today’s Fitbit numbers plus recent trend data. In 2 plain sentences: how today compares to the recent trend, and whether it changes anything about training or recovery today. Resting heart rate trending up over days can flag under-recovery — mention that ONLY if the data actually suggests it. No preamble. Not medical advice.';
   const res = await BedrockAPI.chat([{ role: 'user', content: msg }], sys);
   if (res.ok) { $('fitbitBreakdownResult').textContent = res.text; localStorage.setItem(key, res.text); }
   else $('fitbitBreakdownResult').textContent = 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
-function askFitbitBreakdown() { loadFitbitBreakdown(true); }
 
 // Not single-player: when two profiles share a device, show both side by
 // side. Pure local computation, no server, no accounts — just reads the
@@ -524,7 +537,7 @@ function renderWorkoutList() {
         <button class="shuffle-btn" data-shuffleworkout="${exIdx}" title="Don't like this one? Swap it for another">🔀 Swap</button>
       </div>
       <div class="exercise-meta">${suggested ? `Last time you handled ~${suggested} lb for target reps — pre-filled below, adjust if needed.` : 'No history yet — pick a weight you can control for the full rep range.'}</div>
-      ${lastLogged ? `<button class="form-toggle" data-repeatlast="${exIdx}" style="color:var(--clay-dark);">↺ Same as last time</button>` : ''}
+      ${lastLogged ? `<button class="form-toggle" data-repeatlast="${exIdx}" style="color:var(--accent-text);">↺ Same as last time</button>` : ''}
       ${exDef && exDef.cue ? `
         <button class="form-toggle" data-formtoggle="${exIdx}">Show proper form ▾</button>
         <div class="form-cue" data-formcue="${exIdx}" hidden>
@@ -731,6 +744,48 @@ function renderProgress() {
   drawExerciseChart();
   renderScanHistory();
   renderTrajectoryStats();
+  drawFitbitTrendChart();
+  renderPastWorkouts();
+}
+
+// Steps over the last two weeks — built from the daily snapshots
+// recordFitbitDailySnapshot() saves each time Home fetches "today". Needs
+// at least 2 days of history to draw a real line, same pattern as the
+// weight-trend chart. Resting heart rate isn't plotted alongside it (its
+// 50-100bpm range would look flat next to a thousands-of-steps y-axis on a
+// shared scale) — it gets a first-vs-latest read in the caption instead.
+function drawFitbitTrendChart() {
+  const card = $('fitbitTrendCard');
+  const daily = (ACTIVE.history.fitbitDaily || []).slice().sort((a, b) => a.date - b.date).slice(-14);
+  if (!Fitbit.isConnected() || daily.length < 2) { card.hidden = true; return; }
+  card.hidden = false;
+  const stepsPts = daily.map(d => ({ x: d.date, y: d.steps }));
+  MiniChart.draw($('fitbitTrendChart'), [{ points: stepsPts }]);
+
+  const lastSteps = daily[daily.length - 1].steps;
+  const hrReadings = daily.filter(d => d.restingHeartRate != null);
+  let hrNote = '';
+  if (hrReadings.length >= 2) {
+    const diff = hrReadings[hrReadings.length - 1].restingHeartRate - hrReadings[0].restingHeartRate;
+    hrNote = diff === 0 ? ' Resting HR steady.' : ` Resting HR ${diff > 0 ? 'up' : 'down'} ${Math.abs(diff)} bpm over that window.`;
+  }
+  $('fitbitTrendCaption').textContent = `Steps over the last ${daily.length} day${daily.length === 1 ? '' : 's'} synced.${lastSteps != null ? ` Latest: ${lastSteps.toLocaleString()}.` : ''}${hrNote}`;
+}
+
+// A plain, browsable log of recent sessions — not another aggregate stat,
+// just "what did I actually do." Fitbit-sourced sessions (source:'fitbit')
+// show a wearable badge; logged-by-hand sessions show total volume instead
+// since Fitbit entries don't carry set/rep data the same way.
+function renderPastWorkouts() {
+  const wrap = $('pastWorkoutsList');
+  const list = (ACTIVE.history.workouts || []).slice().sort((a, b) => b.date - a.date).slice(0, 10);
+  if (!list.length) { wrap.innerHTML = '<p class="muted-copy">No sessions logged yet.</p>'; return; }
+  wrap.innerHTML = list.map(w => {
+    const d = new Date(w.date).toLocaleDateString();
+    const vol = (w.exercises || []).reduce((a, ex) => a + (ex.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
+    const detail = w.source === 'fitbit' ? '⌚ Fitbit' : (vol ? `${Math.round(vol).toLocaleString()} lb·reps` : `${(w.exercises || []).length} exercise${(w.exercises || []).length === 1 ? '' : 's'}`);
+    return `<div class="scan-history-row"><span>${d} — ${w.label || 'Session'}</span><span>${detail}</span></div>`;
+  }).join('');
 }
 
 function drawMuscleChart() {
@@ -804,23 +859,30 @@ function renderTrajectoryStats() {
   p.textContent = Trajectory.narrativeText(proj, unit);
   wrap.appendChild(p);
 
-  $('btnAskTrajectory').hidden = !Sync.isLoggedIn();
-
   const n = (ACTIVE.history.workouts || []).length;
   const stage = n < 4 ? 'Early data — estimates are rough, mostly based on research norms for your experience level.'
     : n < 15 ? 'Building a real picture — projections are starting to lean on your own numbers.'
     : 'Well-established data — projections here are driven mostly by your actual trend, not just averages.';
   $('dataMaturityNote').textContent = `${n} session${n === 1 ? '' : 's'} logged. ${stage}`;
+
+  loadTrajectoryAi();
 }
 
-async function askTrajectoryAi() {
+// Auto-populates once a day (cached, same pattern as the daily insight) — no
+// button needed for a passive readout of data already on screen.
+async function loadTrajectoryAi() {
+  if (!Sync.isLoggedIn()) { $('trajectoryAiResult').hidden = true; return; }
+  const key = `bedrock_trajectory_ai_${ACTIVE.id}_${new Date().toDateString()}`;
+  const cached = localStorage.getItem(key);
+  if (cached) { $('trajectoryAiResult').hidden = false; $('trajectoryAiResult').textContent = cached; return; }
   const proj = Trajectory.project(ACTIVE);
-  const sys = BEDROCK_PERSONA + ' You will be given a structured data summary. Give a short (3-4 sentence), realistic, non-medical read on the trend and ONE concrete suggestion. Be honest if the data is too sparse to say much yet.';
+  const sys = BEDROCK_PERSONA + ' You will be given a structured data summary. In 2 plain sentences: a realistic, non-medical read on the trend, and ONE concrete suggestion. Be honest if the data is too sparse to say much yet. No preamble.';
   const msg = Insights.summaryText(ACTIVE) + `\nProjected ${proj.weeksAhead}-week weight change range: ${proj.lowRange} to ${proj.highRange} lb.`;
   $('trajectoryAiResult').hidden = false;
   $('trajectoryAiResult').textContent = 'Thinking…';
   const res = await BedrockAPI.chat([{ role: 'user', content: msg }], sys);
-  $('trajectoryAiResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
+  if (res.ok) { $('trajectoryAiResult').textContent = res.text; localStorage.setItem(key, res.text); }
+  else $('trajectoryAiResult').hidden = true;
 }
 
 function setPendingPhoto(dataUrl, keypoints) {
@@ -934,7 +996,7 @@ async function askAiAboutScan() {
   if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
   $('scanAiResult').hidden = false;
   $('scanAiResult').textContent = 'Looking…';
-  const sys = BEDROCK_PERSONA + ' Give general, non-medical feedback on this standing progress photo: posture, symmetry, and whether the shot is consistent for future comparisons (angle, lighting, distance). Do NOT estimate body fat percentage, diagnose anything, or make medical claims. Keep it to 3-4 sentences.';
+  const sys = BEDROCK_PERSONA + ' Give general, non-medical feedback on this standing progress photo: posture, symmetry, and whether the shot is consistent for future comparisons (angle, lighting, distance). Do NOT estimate body fat percentage, diagnose anything, or make medical claims. 2 sentences max, no preamble.';
   const res = await BedrockAPI.askAboutImage(photo, 'Give me general posture/consistency feedback on this progress photo.', sys);
   $('scanAiResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
@@ -1110,13 +1172,19 @@ async function suggestMealClick() {
   $('mealSuggestResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
 
-async function aiSupplementsClick() {
-  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
+// Auto-populates once a day (cached) when the Supplements panel opens — no
+// tap needed for a passive read of the same fixed reference list below it.
+async function loadAiSupplements() {
+  if (!Sync.isLoggedIn()) { $('aiSupplementResult').hidden = true; return; }
+  const key = `bedrock_ai_supplements_${ACTIVE.id}_${new Date().toDateString()}`;
+  const cached = localStorage.getItem(key);
+  if (cached) { $('aiSupplementResult').hidden = false; $('aiSupplementResult').textContent = cached; return; }
   $('aiSupplementResult').hidden = false;
   $('aiSupplementResult').textContent = 'Thinking…';
-  const sys = BEDROCK_PERSONA + ' You will get a data summary and a fixed supplement reference list has already been shown to the user separately. Recommend at most 2-3 supplements from mainstream sports-nutrition evidence (not exotic/unproven ones) that best fit this specific person\'s goal and gaps, and say briefly why each one. End with a one-line reminder that food and training come first. Under 130 words.';
+  const sys = BEDROCK_PERSONA + ' You will get a data summary and a fixed supplement reference list has already been shown to the user separately. Recommend at most 2-3 supplements from mainstream sports-nutrition evidence (not exotic/unproven ones) that best fit this specific person\'s goal and gaps, one short line each on why. End with a one-line reminder that food and training come first. Under 60 words total, no preamble.';
   const res = await BedrockAPI.chat([{ role: 'user', content: Insights.summaryText(ACTIVE) }], sys);
-  $('aiSupplementResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
+  if (res.ok) { $('aiSupplementResult').textContent = res.text; localStorage.setItem(key, res.text); }
+  else $('aiSupplementResult').hidden = true;
 }
 
 /* ---------------------------------------------------------------- */
@@ -1167,7 +1235,7 @@ async function sendChat() {
   // actual logs (the same numbers driving their charts) so answers cite
   // real figures instead of generic advice, and always end with one
   // concrete next step.
-  const sys = BEDROCK_PERSONA + `\n\nHere is the user's current data summary — this is exactly what feeds their charts on the Progress and Fuel tabs. Cite specific numbers from it directly in your answer (e.g. "your bench is up to X lb", "legs is Y% of your recent volume") rather than speaking generically. If the summary doesn't have what you'd need to answer precisely, say so plainly instead of guessing. End with one concrete, specific next action.\n\n${Insights.summaryText(ACTIVE)}\n\nKeep answers under ~130 words.`;
+  const sys = BEDROCK_PERSONA + `\n\nHere is the user's current data summary — this is exactly what feeds their charts on the Progress and Fuel tabs. Cite specific numbers from it directly in your answer (e.g. "your bench is up to X lb", "legs is Y% of your recent volume") rather than speaking generically. If the summary doesn't have what you'd need to answer precisely, say so plainly instead of guessing. End with one concrete, specific next action.\n\n${Insights.summaryText(ACTIVE)}\n\nKeep answers under ~60 words — direct and plain, no preamble.`;
   const recent = ACTIVE.history.chats.slice(-10).map(m => ({ role: m.role, content: m.content }));
   const res = await BedrockAPI.chat(recent, sys);
   ACTIVE.history.chats.push({ role: 'assistant', content: res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.', date: Date.now() });
@@ -1460,7 +1528,6 @@ function init() {
   $('switcherBackdrop').addEventListener('click', e => { if (e.target.id === 'switcherBackdrop') $('switcherBackdrop').hidden = true; });
   $('btnSettings').addEventListener('click', () => { showView('settings'); renderSettings(); });
   $('btnGoConnectFitbit').addEventListener('click', () => { showView('settings'); renderSettings(); $('btnFitbitConnect').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
-  $('btnFitbitBreakdown').addEventListener('click', askFitbitBreakdown);
   $('btnDismissFitbitBanner').addEventListener('click', dismissFitbitBanner);
   wireFitbitBannerSwipe();
   $('btnToggleTheme').addEventListener('click', toggleTheme);
@@ -1485,9 +1552,8 @@ function init() {
   $('btnAskAiScan').addEventListener('click', askAiAboutScan);
   $('btnComparePhotos').addEventListener('click', comparePhotosClick);
   $('btnToggleFocusOverlay').addEventListener('click', toggleFocusOverlay);
-  $('btnAskTrajectory').addEventListener('click', askTrajectoryAi);
 
-  $('tileSupplements').addEventListener('click', () => { showView('supplements'); switchFuelTab('supplements'); renderSupplements(); });
+  $('tileSupplements').addEventListener('click', () => { showView('supplements'); switchFuelTab('supplements'); renderSupplements(); loadAiSupplements(); });
   qs('[data-close-supplements]').addEventListener('click', () => showView('dashboard'));
   qsa('#supplementFilter .chip').forEach(chip => chip.addEventListener('click', () => {
     qsa('#supplementFilter .chip').forEach(c => c.classList.remove('active'));
@@ -1495,7 +1561,6 @@ function init() {
     renderSupplements(chip.dataset.filter);
   }));
   qsa('#fuelTabs .chip').forEach(chip => chip.addEventListener('click', () => switchFuelTab(chip.dataset.tab)));
-  $('btnAiSupplements').addEventListener('click', aiSupplementsClick);
   qsa('[data-water]').forEach(btn => btn.addEventListener('click', () => addWater(Number(btn.dataset.water))));
   $('btnAddMeal').addEventListener('click', addMealFromForm);
   $('btnScanFood').addEventListener('click', openFoodScanCamera);
@@ -1547,7 +1612,7 @@ function init() {
     const target = btn.dataset.nav;
     showView(target);
     if (target === 'progress') renderProgress();
-    if (target === 'supplements') renderSupplements();
+    if (target === 'supplements') { renderSupplements(); loadAiSupplements(); }
     if (target === 'chat') renderChat();
   }));
 

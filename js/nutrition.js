@@ -148,7 +148,7 @@ const Nutrition = (() => {
     if (!Sync.isLoggedIn()) return { ok: false, error: 'not_signed_in' };
     const target = dailyTarget(profile);
     const totals = todayTotals(profile);
-    const sys = BEDROCK_PERSONA + ' Suggest ONE concrete next meal or snack (real foods, rough portions) that closes the gap to the remaining daily targets, based on what they usually eat if that\'s clear from the log. 3-4 sentences. Not medical advice.';
+    const sys = BEDROCK_PERSONA + ' Suggest ONE concrete next meal or snack (real foods, rough portions) that closes the gap to the remaining daily targets, based on what they usually eat if that\'s clear from the log. 2 sentences max, no preamble. Not medical advice.';
     const msg = `Goal: ${profile.goal}.\nDaily target: ~${target?.calories ?? '?'} kcal, ~${target?.proteinG ?? '?'}g protein, ~${target?.carbG ?? '?'}g carbs, ~${target?.fatG ?? '?'}g fat.\nLogged today so far: ~${totals.calories} kcal, ~${totals.proteinG}g protein.\nRecent meals (memory):\n${recentMealSummary(profile)}`;
     return BedrockAPI.chat([{ role: 'user', content: msg }], sys);
   }

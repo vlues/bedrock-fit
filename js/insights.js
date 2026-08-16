@@ -167,7 +167,7 @@ const Insights = (() => {
     const cached = localStorage.getItem(key);
     if (cached) return { ok: true, text: cached, cached: true };
     if (!Sync.isLoggedIn()) return { ok: true, text: ruleBasedInsight(profile), ruleBased: true };
-    const sys = BEDROCK_PERSONA + ' Given a structured data summary, write ONE short daily insight (2-3 sentences): what is going well, and one concrete thing to focus on today.';
+    const sys = BEDROCK_PERSONA + ' Given a structured data summary, write ONE short daily insight in 1-2 plain sentences: what\'s going well, or one concrete thing to focus on today. No preamble.';
     const res = await BedrockAPI.chat([{ role: 'user', content: summaryText(profile) }], sys);
     if (res.ok && res.text) { localStorage.setItem(key, res.text); return { ok: true, text: res.text }; }
     return { ok: true, text: ruleBasedInsight(profile), ruleBased: true };

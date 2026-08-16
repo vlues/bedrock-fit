@@ -231,7 +231,6 @@
         <div class="card-head"><h3>⌚ Today, from your Fitbit</h3><span class="badge-optional">⌚ wearable</span></div>
         <div id="fitbitTodayStats" style="display:flex; justify-content:space-between; text-align:center; gap:6px;"></div>
         <p class="muted-copy" id="fitbitTodayNote" style="margin-top:12px;"></p>
-        <button class="btn btn-secondary btn-block" id="btnFitbitBreakdown" style="margin-top:6px;">🔄 Refresh Bedrock's breakdown</button>
         <p class="ai-result" id="fitbitBreakdownResult" hidden></p>
       </div>
 
@@ -368,8 +367,24 @@
         <canvas id="volumeChart" width="320" height="140"></canvas>
         <div id="trajectoryStats" class="scan-history"></div>
         <p class="muted-copy" id="dataMaturityNote"></p>
-        <button class="btn btn-secondary btn-block" id="btnAskTrajectory" hidden>🤖 Ask Bedrock to read this trend</button>
         <div id="trajectoryAiResult" class="ai-result" hidden></div>
+      </div>
+
+      <div class="card" id="fitbitTrendCard" hidden>
+        <div class="card-head">
+          <h3>⌚ Fitbit trend</h3>
+          <span class="badge-optional">⌚ from your Fitbit</span>
+        </div>
+        <canvas id="fitbitTrendChart" width="320" height="140"></canvas>
+        <p class="muted-copy" id="fitbitTrendCaption"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Past workouts</h3>
+          <span class="badge-optional">📊 from your logs</span>
+        </div>
+        <div id="pastWorkoutsList" class="scan-history"></div>
       </div>
     </div>
   </section>
@@ -395,7 +410,6 @@
           <button class="chip" data-filter="performance">Performance</button>
           <button class="chip" data-filter="health">General health</button>
         </div>
-        <button class="btn btn-secondary btn-block" id="btnAiSupplements">Get Bedrock's personalized read <span class="badge-optional">optional</span></button>
         <div id="aiSupplementResult" class="ai-result" hidden></div>
         <div id="supplementList" class="supplement-list"></div>
       </div>

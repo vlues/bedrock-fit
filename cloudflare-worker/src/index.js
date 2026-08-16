@@ -346,82 +346,87 @@ async function handleGoogleHealthDisconnect(env, user, cors) {
   return json({ ok: true }, 200, cors);
 }
 
-// The Google Health API is very new (this integration was written during
-// its migration window from the old Fitbit Web API) and its full field-level
-// response schema isn't fully documented publicly yet. Rather than assume
-// one exact shape and silently return wrong/zero numbers, this tries a few
-// plausible field names a Google metrics API tends to use. If Bedrock's
-// Fitbit-today card ever shows suspiciously empty/zero numbers for a
-// genuinely connected, active account: log the raw upstream JSON here
-// (`console.log` reaches the Cloudflare dashboard's Worker logs) and extend
-// this function with whatever the real field turns out to be.
-function extractMetricValue(rollupJson) {
-  if (rollupJson == null) return null;
-  if (typeof rollupJson === 'number') return rollupJson;
-  const candidates = [
-    rollupJson.value, rollupJson.floatValue, rollupJson.intValue, rollupJson.total,
-    rollupJson?.rollup?.value, rollupJson?.aggregateValue,
-  ];
-  for (const c of candidates) {
-    if (typeof c === 'number') return c;
-    if (c && typeof c === 'object' && typeof c.value === 'number') return c.value;
-  }
-  // Array-shaped rollups: take the most recent point's value.
-  const arr = Array.isArray(rollupJson) ? rollupJson : (rollupJson.dataPoints || rollupJson.points || null);
-  if (Array.isArray(arr) && arr.length) return extractMetricValue(arr[arr.length - 1]);
-  return null;
+// Verified end-to-end 2026-08-16 against a real connected account, by
+// reading the discovery document directly (`curl .../$discovery/rest?version=v4`
+// piped into python3's json module — NOT an LLM's paraphrase of it, which is
+// what produced two rounds of broken guesses before this one: `dailyRollUp`
+// is case-sensitive (capital U — `dailyRollup` 404s on Google's generic
+// infra page, not even reaching this API), the request is a structured
+// `range: {start,end: {date:{year,month,day}}}` body (not a query string),
+// and a couple of dataType path ids (`daily-resting-heart-rate`,
+// `daily-heart-rate-variability`) don't match their own response field
+// names (`restingHeartRatePersonalRange`, `heartRateVariabilityPersonalRange`)
+// the way the others do. If Google changes this API again, re-derive the
+// same way — fetch the discovery doc and read the real JSON yourself —
+// rather than trusting a blog post or a paraphrase of one.
+function civilDateFor(date) {
+  return { date: { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() } };
 }
 
 async function fetchDailyRollup(accessToken, dataType) {
+  const url = `${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dataPoints:dailyRollUp`;
+  const today = new Date();
+  const tomorrow = new Date(today.getTime() + 24 * 3600 * 1000);
   try {
-    const res = await fetch(`${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dailyRollup?windowSize=1%20day`, {
-      headers: { authorization: `Bearer ${accessToken}` },
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ windowSizeDays: 1, range: { start: civilDateFor(today), end: civilDateFor(tomorrow) } }),
     });
-    if (!res.ok) return null;
-    return extractMetricValue(await res.json());
+    const bodyText = await res.text();
+    if (!res.ok) { console.log(`[google-health] ${dataType} -> ${res.status} ${bodyText.slice(0, 300)}`); return null; }
+    let parsed; try { parsed = JSON.parse(bodyText); } catch (e) { return null; }
+    const points = parsed.rollupDataPoints || [];
+    return points.length ? points[points.length - 1] : null;
   } catch (e) {
+    console.log(`[google-health] ${dataType} -> fetch threw: ${e.message}`);
     return null;
   }
 }
 
-// dataType ids: 'steps', 'active-energy-burned', 'basal-energy-burned',
-// 'daily-resting-heart-rate', and 'distance' are confirmed against the
-// migration docs at write time. The rest below (move-minutes,
-// sleep-duration, heart-rate-variability, oxygen-saturation) are the most
-// plausible ids given the API's naming convention and its documented data
-// categories (Activity & Fitness, Vitals, Sleep & Recovery) but are NOT
-// individually confirmed — each is wrapped in fetchDailyRollup's own
-// try/catch and simply comes back null on a 404/shape mismatch, so a wrong
-// guess here just means that one stat quietly doesn't show, never a crash.
-// If one keeps coming back null for a genuinely active/connected account,
-// check the Worker's logs (Cloudflare dashboard) for the raw 404 and correct
-// the id against developers.google.com/health's current reference.
+function toNum(v) { // int64 fields come back as JSON strings
+  if (v == null) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
 async function handleGoogleHealthToday(env, user, cors) {
   const token = await getValidGoogleToken(env, user.user_id);
   if (!token) return err('not_connected', 409, cors);
 
-  const [steps, activeCal, basalCal, restingHr, distanceM, moveMin, sleepMin, hrv, spo2] = await Promise.all([
+  const [stepsPt, calPt, hrPt, distPt, activeMinPt, hrvPt] = await Promise.all([
     fetchDailyRollup(token, 'steps'),
-    fetchDailyRollup(token, 'active-energy-burned'),
-    fetchDailyRollup(token, 'basal-energy-burned'),
+    fetchDailyRollup(token, 'total-calories'),
     fetchDailyRollup(token, 'daily-resting-heart-rate'),
     fetchDailyRollup(token, 'distance'),
-    fetchDailyRollup(token, 'move-minutes'),
-    fetchDailyRollup(token, 'sleep-duration'),
-    fetchDailyRollup(token, 'heart-rate-variability'),
-    fetchDailyRollup(token, 'oxygen-saturation'),
+    fetchDailyRollup(token, 'active-minutes'),
+    fetchDailyRollup(token, 'daily-heart-rate-variability'),
   ]);
-  const caloriesOut = (activeCal != null || basalCal != null) ? Math.round((activeCal || 0) + (basalCal || 0)) : null;
+
+  const steps = toNum(stepsPt?.steps?.countSum);
+  const kcal = toNum(calPt?.totalCalories?.kcalSum);
+  const distanceMm = toNum(distPt?.distance?.millimetersSum);
+  const hrMin = toNum(hrPt?.restingHeartRatePersonalRange?.beatsPerMinuteMin);
+  const hrMax = toNum(hrPt?.restingHeartRatePersonalRange?.beatsPerMinuteMax);
+  const hrvMin = toNum(hrvPt?.heartRateVariabilityPersonalRange?.averageHeartRateVariabilityMillisecondsMin);
+  const hrvMax = toNum(hrvPt?.heartRateVariabilityPersonalRange?.averageHeartRateVariabilityMillisecondsMax);
+  const activeMinLevels = activeMinPt?.activeMinutes?.activeMinutesRollupByActivityLevel || [];
+  const activeMinTotal = activeMinLevels.length
+    ? activeMinLevels.reduce((sum, l) => sum + (toNum(l.activeMinutesSum) || 0), 0)
+    : null;
+
   return json({
     ok: true,
     steps: steps != null ? Math.round(steps) : null,
-    restingHeartRate: restingHr != null ? Math.round(restingHr) : null,
-    caloriesOut,
-    distanceKm: distanceM != null ? Math.round((distanceM / 1000) * 10) / 10 : null,
-    activeMinutes: moveMin != null ? Math.round(moveMin) : null,
-    sleepHours: sleepMin != null ? Math.round((sleepMin / 60) * 10) / 10 : null,
-    hrv: hrv != null ? Math.round(hrv) : null,
-    spo2Pct: spo2 != null ? Math.round(spo2 * 10) / 10 : null,
+    // The API gives a personal RANGE, not one point-in-time reading — the
+    // midpoint is the closest honest single number for a one-line stat tile.
+    restingHeartRate: (hrMin != null && hrMax != null) ? Math.round((hrMin + hrMax) / 2) : null,
+    caloriesOut: kcal != null ? Math.round(kcal) : null,
+    distanceKm: distanceMm != null ? Math.round((distanceMm / 1_000_000) * 10) / 10 : null,
+    activeMinutes: activeMinTotal,
+    sleepHours: null, // not a dailyRollup metric in this API at all
+    hrv: (hrvMin != null && hrvMax != null) ? Math.round((hrvMin + hrvMax) / 2) : null,
+    spo2Pct: null, // same — not a dailyRollup metric
   }, 200, cors);
 }
 

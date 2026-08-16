@@ -12,10 +12,10 @@ const MiniChart = (() => {
     const plotH = h - pad.t - pad.b;
 
     const styles = getComputedStyle(document.documentElement);
-    const clay = styles.getPropertyValue('--clay').trim() || '#b5674a';
-    const olive = styles.getPropertyValue('--olive').trim() || '#6f7d55';
-    const stone = styles.getPropertyValue('--stone').trim() || '#d9cdb8';
-    const bark = styles.getPropertyValue('--bark-soft').trim() || '#6b5d4f';
+    const clay = styles.getPropertyValue('--accent-text').trim() || '#b5674a';
+    const olive = styles.getPropertyValue('--olive-text').trim() || '#6f7d55';
+    const stone = styles.getPropertyValue('--hairline').trim() || '#d9cdb8';
+    const bark = styles.getPropertyValue('--muted-text').trim() || '#6b5d4f';
 
     const allVals = series.flatMap(s => s.points.map(p => p.y)).filter(v => v != null && !isNaN(v));
     if (!allVals.length) {
@@ -91,9 +91,9 @@ const MiniChart = (() => {
     const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
 
     const styles = getComputedStyle(document.documentElement);
-    const clay = styles.getPropertyValue('--clay').trim() || '#b5674a';
-    const stone = styles.getPropertyValue('--stone').trim() || '#d9cdb8';
-    const bark = styles.getPropertyValue('--bark-soft').trim() || '#6b5d4f';
+    const clay = styles.getPropertyValue('--accent-text').trim() || '#b5674a';
+    const stone = styles.getPropertyValue('--hairline').trim() || '#d9cdb8';
+    const bark = styles.getPropertyValue('--muted-text').trim() || '#6b5d4f';
 
     if (!items.length || items.every(i => !i.value)) {
       ctx.fillStyle = bark; ctx.font = '13px sans-serif';

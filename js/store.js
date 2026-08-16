@@ -64,7 +64,7 @@ const Store = (() => {
       goal: 'muscle', exp: 'new', days: 3, equipment: 'full', focusAreas: [], excludedExercises: [],
       limitations: '', unitWeight: 'lb', unitHeight: 'ftin',
       createdAt: Date.now(),
-      history: { workouts: [], checkins: [], chats: [], water: [], meals: [] },
+      history: { workouts: [], checkins: [], chats: [], water: [], meals: [], fitbitDaily: [] },
       customExercises: [],
       planSeed: Math.floor(Math.random() * 1000)
     };
@@ -77,6 +77,7 @@ const Store = (() => {
     p.history.chats = p.history.chats || [];
     p.history.water = p.history.water || [];
     p.history.meals = p.history.meals || [];
+    p.history.fitbitDaily = p.history.fitbitDaily || [];
     p.customExercises = p.customExercises || [];
     p.focusAreas = p.focusAreas || [];
     p.excludedExercises = p.excludedExercises || [];

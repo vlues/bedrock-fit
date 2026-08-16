@@ -62,14 +62,21 @@ steps and links, then asks for just the two things it produces: your OAuth
 Client ID and Client Secret (secret piped straight to `wrangler secret put`,
 never written to a file).
 
-This API is very new (Google's Fitbit migration window closes ~Sept 2026)
-and its response schema isn't fully documented publicly at time of writing.
-`src/index.js`'s `handleGoogleHealthToday`/`handleGoogleHealthActivities`
-comments flag exactly which `dataType` ids and response fields are
-best-effort rather than confirmed — if a stat ever looks wrong for a
-genuinely connected, active account, check this worker's logs (Cloudflare
-dashboard → Workers → bedrock-api → Logs) for the raw upstream response
-before assuming the request-building logic is wrong.
+`handleGoogleHealthToday`'s six stats (steps, distance, calories, active
+minutes, resting heart rate, HRV) are verified against a real connected
+account — every `dataType` id, HTTP method, request body shape, and response
+field name was read directly out of Google's live discovery document
+(`curl "https://health.googleapis.com/\$discovery/rest?version=v4" | python3 -m json.tool`),
+not guessed or taken from a paraphrase. Two real, confirmed gaps: sleep and
+SpO2 aren't exposed by the daily-rollup method at all (not a bug — see the
+comment above `fetchDailyRollup`). If Google changes this API again and a
+stat breaks, re-derive the same way — fetch the discovery doc yourself and
+read the real JSON — rather than trusting a blog post or an LLM's summary of
+one; that's exactly what produced two broken rounds during this
+integration's own build (wrong endpoint casing, wrong request shape). This
+worker's logs (Cloudflare dashboard → Workers → bedrock-api → Logs, or
+`npx wrangler tail` for live streaming) show the raw upstream response on
+any non-200.
 
 ## Config
 
