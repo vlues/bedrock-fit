@@ -220,9 +220,10 @@
         <p id="insightText" class="muted-copy">Loading…</p>
       </div>
 
-      <div class="card" id="fitbitBanner" hidden>
+      <div class="card" id="fitbitBanner" hidden style="position:relative; transition: transform .25s var(--ease), opacity .25s var(--ease);">
+        <button class="iconbtn" id="btnDismissFitbitBanner" aria-label="Dismiss" style="position:absolute; top:12px; right:12px; width:26px; height:26px;"><span class="ms" style="font-size:15px;">close</span></button>
         <div class="card-head"><h3>⌚ Connect your Fitbit</h3></div>
-        <p class="muted-copy">Charge 6 and other Fitbits can sync automatically — connect once in Settings and forget about it.</p>
+        <p class="muted-copy">Charge 6 and other Fitbits can sync automatically — connect once in Settings and forget about it. No Fitbit? Swipe this away or tap ✕ — it won't come back.</p>
         <button class="btn btn-secondary btn-block" id="btnGoConnectFitbit">Connect Fitbit</button>
       </div>
 
@@ -230,7 +231,7 @@
         <div class="card-head"><h3>⌚ Today, from your Fitbit</h3><span class="badge-optional">⌚ wearable</span></div>
         <div id="fitbitTodayStats" style="display:flex; justify-content:space-between; text-align:center; gap:6px;"></div>
         <p class="muted-copy" id="fitbitTodayNote" style="margin-top:12px;"></p>
-        <button class="btn btn-secondary btn-block" id="btnFitbitBreakdown" style="margin-top:6px;">🤖 Ask Bedrock to break this down</button>
+        <button class="btn btn-secondary btn-block" id="btnFitbitBreakdown" style="margin-top:6px;">🔄 Refresh Bedrock's breakdown</button>
         <p class="ai-result" id="fitbitBreakdownResult" hidden></p>
       </div>
 
@@ -555,14 +556,13 @@
       </div>
 
       <div class="card">
-        <h3>⌚ Fitbit (Charge 6, etc.)</h3>
-        <p class="muted-copy">Real-time-ish sync via Fitbit's own API — no file export needed. Requires a free Fitbit developer app (2 min setup, one time). <span id="fitbitDeprecationNote">Heads up: Fitbit is retiring this API in Sept 2026 — this may need an update after that.</span></p>
-        <label class="field"><span>Fitbit Client ID</span><input type="text" id="fitbitClientId" placeholder="from dev.fitbit.com/apps"></label>
-        <p class="muted-copy">Redirect URL to register: <code id="fitbitRedirectUri"></code></p>
+        <h3>⌚ Fitbit (via Google Health)</h3>
+        <p class="muted-copy">Real sync, not file export — steps, resting heart rate, calories, and more, refreshed automatically. Routes through your household's Bedrock backend (Google's OAuth for this needs a client secret, which can't safely live in a browser) — needs signing in under Settings → Sync first, and the backend admin to have run <code>cloudflare-worker/setup-google-health.sh</code> once.</p>
         <button class="btn btn-secondary btn-block" id="btnFitbitConnect">Connect Fitbit</button>
         <button class="btn btn-primary btn-block" id="btnFitbitSync" hidden>Sync now</button>
         <button class="btn btn-ghost btn-block danger" id="btnFitbitDisconnect" hidden>Disconnect</button>
         <p class="key-status" id="fitbitStatus"></p>
+        <button class="btn btn-ghost btn-block" id="btnShowFitbitBanner" hidden style="margin-top:4px;">Show the "Connect your Fitbit" card on Home again</button>
       </div>
 
       <div class="card">

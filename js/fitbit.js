@@ -1,173 +1,97 @@
-/* ===================== Bedrock — Fitbit (Charge 6, etc.) integration ===================== */
+/* ===================== Bedrock — Fitbit, via the Google Health API ===================== */
 /*
-  Unlike Apple Watch (no web API for HealthKit), Fitbit's Web API supports a
-  browser-only OAuth 2.0 Authorization Code + PKCE flow for public "Client"
-  apps — no backend needed, which is why this one can be real instead of an
-  import-only workaround. Source: dev.fitbit.com/build/reference/web-api/authorization.
+  Fitbit's old Web API (the "Client" app type, browser-only OAuth+PKCE, no
+  backend needed) was retired in favor of the Google Health API — see
+  developers.google.com/health. That migration changed more than the URL:
+  Google's OAuth client for this API is a confidential "Web Server" type,
+  which requires a client secret. A client secret can't safely live in a
+  static site's JS, so — unlike the old Fitbit integration — this one is
+  backend-mediated: cloudflare-worker/ holds the Google tokens server-side
+  (google_health_tokens table) and this module just calls the worker's
+  authenticated /api/google-health/* endpoints. The browser never sees a
+  Google access/refresh token at all, which is actually a real security
+  upgrade over the old browser-PKCE model, even though it means Fitbit sync
+  now requires being signed in to a Bedrock account (see js/sync.js) — there's
+  no backend-free path for this one feature anymore.
 
-  IMPORTANT — as of this writing (Aug 2026), Fitbit has announced it is
-  retiring this legacy Web API in September 2026 in favor of the Google
-  Health API. This integration targets the CURRENT API; if it stops working
-  after that migration, that's why — the fix is pointing these calls at
-  Google Health's replacement endpoints once Fitbit publishes the mapping.
+  One-time setup (once per household, not per person) — see
+  cloudflare-worker/README.md's "Google Health" section and
+  cloudflare-worker/setup-google-health.sh.
 
-  Setup (one-time, per household — see Settings → Connect Fitbit):
-   1. Create a free app at https://dev.fitbit.com/apps/new
-   2. OAuth 2.0 Application Type: "Client"
-   3. Redirect URL: your deployed Bedrock URL (must match exactly)
-   4. Paste the Client ID into Settings here.
+  This API is very new (written during Google's Fitbit migration window,
+  closing Sept 2026) and not fully documented publicly yet — the worker side
+  (src/index.js's extractMetricValue) has notes on where to look first if a
+  number here ever looks wrong.
 */
 
 const Fitbit = (() => {
-  const AUTH_URL = 'https://www.fitbit.com/oauth2/authorize';
-  const TOKEN_URL = 'https://api.fitbit.com/oauth2/token';
-  const API_BASE = 'https://api.fitbit.com';
-  const SCOPES = 'activity heartrate profile';
+  // Not a secret — just a local UI hint ("show Connected vs Connect") set
+  // right after the backend confirms a successful connection. The real
+  // credential (Google's tokens) lives only in the worker's database.
+  const CONNECTED_KEY = 'bedrock_googlehealth_connected';
 
-  const CLIENT_ID_KEY = 'bedrock_fitbit_client_id';
-  const TOKEN_KEY = 'bedrock_fitbit_token'; // { access_token, refresh_token, expires_at, user_id }
-  const VERIFIER_KEY = 'bedrock_fitbit_pkce_verifier';
+  function isConnected() { return localStorage.getItem(CONNECTED_KEY) === '1'; }
+  function setConnectedFlag(v) { if (v) localStorage.setItem(CONNECTED_KEY, '1'); else localStorage.removeItem(CONNECTED_KEY); }
 
-  function getClientId() { return localStorage.getItem(CLIENT_ID_KEY) || ''; }
-  function setClientId(id) { localStorage.setItem(CLIENT_ID_KEY, id || ''); }
-  function getToken() { try { return JSON.parse(localStorage.getItem(TOKEN_KEY)); } catch (e) { return null; } }
-  function setToken(t) { localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); }
-  function isConnected() { return !!getToken(); }
-
-  // Revokes server-side too (not just forgetting the token locally) so the
-  // household's Fitbit account correctly shows Bedrock as disconnected.
-  // Best-effort — if Fitbit's API is unreachable, we still clear locally.
-  async function disconnect() {
-    const t = getToken();
-    localStorage.removeItem(TOKEN_KEY);
-    if (!t) return;
+  async function authedFetch(path, opts = {}) {
+    if (!Sync.isLoggedIn()) return { ok: false, error: 'not_signed_in' };
     try {
-      await withTimeout(fetch(`${API_BASE}/oauth2/revoke`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ client_id: getClientId(), token: t.access_token })
-      }), 8000, 'fitbit-revoke');
-    } catch (e) { /* already cleared locally — fine either way */ }
+      const res = await withTimeout(fetch(Sync.backendUrl() + path, {
+        ...opts,
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + Sync.getToken(), ...(opts.headers || {}) }
+      }), 15000, 'google-health');
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: body.error || ('http_' + res.status) };
+      return { ok: true, ...body };
+    } catch (e) {
+      return { ok: false, error: String(e).startsWith('Error: timeout') ? 'timeout' : 'network' };
+    }
   }
 
-  function base64url(buffer) {
-    return btoa(String.fromCharCode(...new Uint8Array(buffer)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-  function randomVerifier() {
-    const bytes = new Uint8Array(64);
-    crypto.getRandomValues(bytes);
-    return base64url(bytes.buffer).slice(0, 128);
-  }
-  async function challengeFor(verifier) {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-    return base64url(digest);
-  }
-
-  function redirectUri() {
-    return location.href.split('?')[0].split('#')[0];
-  }
-
+  // Kicks off the OAuth flow: the worker builds Google's consent URL (it's
+  // the one holding the client ID/secret) and this just redirects there.
   async function connect() {
-    const clientId = getClientId();
-    if (!clientId) { alert('Add your Fitbit Client ID in Settings first (from dev.fitbit.com/apps).'); return; }
-    const verifier = randomVerifier();
-    sessionStorage.setItem(VERIFIER_KEY, verifier);
-    const challenge = await challengeFor(verifier);
-    const url = new URL(AUTH_URL);
-    url.searchParams.set('response_type', 'code');
-    url.searchParams.set('client_id', clientId);
-    url.searchParams.set('redirect_uri', redirectUri());
-    url.searchParams.set('scope', SCOPES);
-    url.searchParams.set('code_challenge', challenge);
-    url.searchParams.set('code_challenge_method', 'S256');
-    location.href = url.toString();
+    if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first — connecting Fitbit is tied to your Bedrock account now.'); return; }
+    const res = await authedFetch('/api/google-health/connect');
+    if (!res.ok || !res.url) {
+      alert(res.error === 'not_signed_in' ? 'Sign in under Settings → Sync first.' : 'Couldn’t start Fitbit connect — the backend may not have Google Health set up yet.');
+      return;
+    }
+    location.href = res.url;
   }
 
-  // Call once on app load — completes the flow if we just came back from Fitbit.
-  async function handleRedirectIfPresent() {
+  // Call once on app load. The worker's OAuth callback does the actual token
+  // exchange server-side and redirects the browser back here with a plain
+  // query flag — there's no code/token to handle on this side at all anymore.
+  function handleRedirectIfPresent() {
     const params = new URLSearchParams(location.search);
-    const code = params.get('code');
-    if (!code) return false;
-    const verifier = sessionStorage.getItem(VERIFIER_KEY);
-    const clientId = getClientId();
-    history.replaceState({}, '', location.pathname); // strip ?code= from the URL
-    if (!verifier || !clientId) return false;
-
-    try {
-      const res = await withTimeout(fetch(TOKEN_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: clientId, grant_type: 'authorization_code',
-          code, redirect_uri: redirectUri(), code_verifier: verifier
-        })
-      }), 15000, 'fitbit-token');
-      if (!res.ok) return false;
-      const data = await res.json();
-      setToken({ ...data, expires_at: Date.now() + (data.expires_in || 28800) * 1000 });
-      return true;
-    } catch (e) { return false; }
+    const connected = params.get('googleHealthConnected');
+    const error = params.get('googleHealthError');
+    if (!connected && !error) return false;
+    history.replaceState({}, '', location.pathname);
+    if (connected) { setConnectedFlag(true); return true; }
+    setConnectedFlag(false);
+    return false;
   }
 
-  // Refresh tokens are single-use and rotate on every call (Fitbit issues a
-  // new one each time) — always persist the full response, never just the
-  // access token, or the next refresh will fail with an already-used token.
-  async function refreshToken(t, _retriesLeft = 1) {
-    try {
-      const res = await withTimeout(fetch(TOKEN_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ client_id: getClientId(), grant_type: 'refresh_token', refresh_token: t.refresh_token })
-      }), 15000, 'fitbit-refresh');
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 400) { disconnect(); return null; } // token no longer valid server-side
-        if (_retriesLeft > 0) { await sleep(700); return refreshToken(t, _retriesLeft - 1); }
-        return null; // transient failure (e.g. Fitbit's API is down) — keep the stored token, try again next time
-      }
-      const data = await res.json();
-      const fresh = { ...data, expires_at: Date.now() + (data.expires_in || 28800) * 1000 };
-      setToken(fresh);
-      return fresh;
-    } catch (e) {
-      if (_retriesLeft > 0) { await sleep(700); return refreshToken(t, _retriesLeft - 1); }
-      return null;
-    }
+  async function disconnect() {
+    setConnectedFlag(false); // clear the local hint immediately either way
+    await authedFetch('/api/google-health/disconnect', { method: 'POST' }).catch(() => {});
   }
 
-  async function ensureFreshToken() {
-    let t = getToken();
-    if (!t) return null;
-    if (Date.now() < t.expires_at - 60000) return t;
-    return refreshToken(t);
+  async function fetchRecentActivities(afterDate) {
+    const res = await authedFetch(`/api/google-health/activities?since=${afterDate}`);
+    if (!res.ok) return res;
+    return { ok: true, activities: res.activities || [] };
   }
 
-  async function fetchRecentActivities(afterDate, _isRetry) {
-    const t = await ensureFreshToken();
-    if (!t) return { ok: false, error: 'not_connected' };
-    const url = `${API_BASE}/1/user/-/activities/list.json?afterDate=${afterDate}&sort=asc&limit=50&offset=0`;
-    try {
-      const res = await withTimeout(fetch(url, { headers: { authorization: `Bearer ${t.access_token}` } }), 15000, 'fitbit-activities');
-      if (res.status === 401 && !_isRetry) {
-        // access token unexpectedly stale (clock drift etc.) — force one refresh + retry before giving up
-        const fresh = await refreshToken(t);
-        if (fresh) return fetchRecentActivities(afterDate, true);
-      }
-      if (!res.ok) return { ok: false, error: 'http_' + res.status };
-      const data = await res.json();
-      return { ok: true, activities: data.activities || [] };
-    } catch (e) {
-      return { ok: false, error: 'network' };
-    }
-  }
-
-  // Pulls new Fitbit exercise logs since the last sync and folds them into
-  // this profile's workout history — de-duplicated by Fitbit logId, so
-  // calling this repeatedly (e.g. every time the app opens) is safe and
-  // cheap. Keeps every real metric Fitbit gives us (duration, steps,
-  // distance, heart rate) instead of collapsing it down to one number, so
-  // Insights/chat can actually reason about your cardio and recovery data,
-  // not just a proxy figure.
+  // Pulls new activity sessions since the last sync and folds them into this
+  // profile's workout history — de-duplicated by logId, so calling this
+  // repeatedly (e.g. every time the app opens) is safe and cheap. `source`
+  // stays 'fitbit' on purpose: that's the wearable brand people actually
+  // have on their wrist; the Google Health API is just this app's pipe to
+  // that data now, an implementation detail the rest of the app (captions,
+  // Insights.recentWearableSummary) doesn't need to know changed.
   async function syncToProfile(profile) {
     profile.fitbitSyncedIds = profile.fitbitSyncedIds || [];
     const since = profile.fitbitLastSync || new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -195,12 +119,11 @@ const Fitbit = (() => {
     return { ok: true, added };
   }
 
-  // Called on every app open. Only actually hits the Fitbit API if it's
-  // been a while since the last sync (default 30 min) and a token exists —
-  // this is what makes it "connect once, forget about it": no button to
-  // remember, and it won't burn your rate limit re-syncing on every tap.
+  // Called on every app open. Only actually hits the backend if it's been a
+  // while since the last sync (default 30 min) and we're connected — this is
+  // what makes it "connect once, forget about it": no button to remember.
   async function autoSyncIfDue(profile, minMinutesBetween = 30) {
-    if (!isConnected()) return { ok: false, skipped: true };
+    if (!isConnected() || !Sync.isLoggedIn()) return { ok: false, skipped: true };
     const last = profile.fitbitLastAutoSyncAt || 0;
     if (Date.now() - last < minMinutesBetween * 60000) return { ok: false, skipped: true };
     const res = await syncToProfile(profile);
@@ -209,45 +132,22 @@ const Fitbit = (() => {
     return res;
   }
 
-  // Today's daily summary straight from Fitbit — steps, resting heart rate,
-  // calories, distance — refreshed whenever Home renders. This is the
-  // closest thing to "live" the standard Web API offers without special
-  // approval: true continuous/intraday heart rate needs Fitbit's separate
-  // intraday-access application review, which is out of scope for a
-  // personal Client app. Resting heart rate and today's totals update
-  // multiple times a day as your Fitbit syncs to Fitbit's servers, which is
-  // honestly close enough for "how am I doing today" at a glance.
-  async function fetchTodaySummary(_isRetry) {
-    const t = await ensureFreshToken();
-    if (!t) return { ok: false, error: 'not_connected' };
-    const today = new Date().toISOString().slice(0, 10);
-    try {
-      const res = await withTimeout(fetch(`${API_BASE}/1/user/-/activities/date/${today}.json`, {
-        headers: { authorization: `Bearer ${t.access_token}` }
-      }), 15000, 'fitbit-today');
-      if (res.status === 401 && !_isRetry) {
-        const fresh = await refreshToken(t);
-        if (fresh) return fetchTodaySummary(true);
-      }
-      if (!res.ok) return { ok: false, error: 'http_' + res.status };
-      const data = await res.json();
-      const s = data.summary || {};
-      const total = (s.distances || []).find(d => d.activity === 'total');
-      return {
-        ok: true,
-        steps: s.steps ?? null,
-        restingHeartRate: s.restingHeartRate ?? null,
-        caloriesOut: s.caloriesOut ?? null,
-        distanceKm: total ? total.distance : null,
-        activeMinutes: (s.fairlyActiveMinutes || 0) + (s.veryActiveMinutes || 0)
-      };
-    } catch (e) {
-      return { ok: false, error: 'network' };
-    }
+  // Today's daily summary — steps, resting heart rate, calories, distance —
+  // refreshed whenever Home renders. This is the closest thing to "live"
+  // available without Google's separate continuous/intraday data approval,
+  // which is out of scope here. Resting heart rate and today's totals update
+  // as your Fitbit syncs through the day, which is honestly close enough
+  // for "how am I doing today" at a glance.
+  async function fetchTodaySummary() {
+    if (!isConnected()) return { ok: false, error: 'not_connected' };
+    const res = await authedFetch('/api/google-health/today');
+    if (!res.ok) { if (res.error === 'not_connected') setConnectedFlag(false); return res; }
+    return res;
   }
 
   // Recent Fitbit-sourced metrics (steps, resting effort, distance) for
   // grounding AI insights/chat in real wearable data, not just workouts.
+  // Pure local computation — reads what's already synced into history.
   function recentWearableSummary(profile, days = 7) {
     const cutoff = Date.now() - days * 24 * 3600 * 1000;
     const entries = (profile.history.workouts || []).filter(w => w.source === 'fitbit' && w.date >= cutoff);
@@ -260,7 +160,7 @@ const Fitbit = (() => {
   }
 
   return {
-    getClientId, setClientId, isConnected, disconnect, connect, handleRedirectIfPresent,
+    isConnected, disconnect, connect, handleRedirectIfPresent,
     syncToProfile, autoSyncIfDue, recentWearableSummary, fetchTodaySummary
   };
 })();

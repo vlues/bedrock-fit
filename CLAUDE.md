@@ -32,7 +32,8 @@ js/scan.js                progress photo capture/compression, check-ins
 js/trajectory.js          volume tracking + projection math
 js/insights.js            data summary builder + cached daily insight + volume-landmark check
 js/nutrition.js           TDEE/macro calc, water, meal log, food-photo estimate
-js/fitbit.js               Fitbit OAuth (PKCE, browser-only) + activity sync + today's summary
+js/fitbit.js               Fitbit, via Google Health — backend-mediated (no client-side OAuth
+                            tokens anymore); calls the worker's /api/google-health/* endpoints
 js/camera.js                in-page camera (getUserMedia) + overlay guides
 js/app.js                 UI controller / router / all event wiring
 cloudflare-worker/          optional backend: D1 (users/sessions/profile_data), Anthropic proxy,
@@ -108,16 +109,24 @@ are in `README.md`.
   README "Accounts, sync & Claude" for why). If asked to "add an API key field back," push
   back and point at the backend instead unless the user explicitly wants the old behavior.
 - Fitbit's "Today" card (`Fitbit.fetchTodaySummary`) is latest-synced daily totals, not a
-  continuous live stream — real intraday/continuous heart rate needs a separate Fitbit
+  continuous live stream — real intraday/continuous heart rate needs a separate Google
   application review this app doesn't request. Don't upgrade the UI copy to imply "live" in
   the real-time sense without actually adding that approval + endpoint.
 - No live Apple Watch / Garmin sync — HealthKit has no web API, and Garmin's API needs
   server-side OAuth. Current path is manual/CSV/XML import (`importData` in `app.js`).
   Don't claim automatic wearable sync without adding an actual backend + native companion
   app first.
-- Fitbit sync (`js/fitbit.js`) targets the *current* legacy Fitbit Web API, which Fitbit
-  has announced retiring ~September 2026 in favor of the Google Health API. If asked to fix
-  broken Fitbit sync after that date, check https://developers.google.com/health for the
-  migration mapping before assuming the code is wrong.
+- Fitbit sync (`js/fitbit.js` + the worker's `/api/google-health/*` endpoints) already
+  targets the Google Health API — Fitbit's old Web API is gone, this isn't a future
+  migration. It's genuinely new (Google's migration window closes ~Sept 2026) and not fully
+  documented publicly at time of writing: `src/index.js`'s `extractMetricValue` and the
+  handful of "best-effort, not individually confirmed" `dataType` ids in
+  `handleGoogleHealthToday`/`handleGoogleHealthActivities` are the known-soft spots. If a
+  stat is wrong or a sync silently returns nothing for a genuinely connected account, check
+  the Worker's Cloudflare dashboard logs for the raw upstream response before assuming the
+  request-building code is wrong — it's more likely one `dataType` id or response field name
+  needs correcting against developers.google.com/health's current reference. Also requires
+  the backend (Google's OAuth client is confidential — needs a client secret — so this can
+  never go back to being a pure-client-side integration like the old Fitbit one was).
 - No food database / barcode scanning — meal calories are either typed in or a rough
   Claude vision estimate the user confirms. Don't overstate accuracy here.

@@ -55,14 +55,16 @@ warm clay/olive glass UI, light + dark, built from a Claude Design project.
 - **Built to keep working if Claude or Fitbit is down** — every external call has a timeout
   and one retry, and every AI feature has a working non-AI fallback (see `js/api.js`,
   `js/fitbit.js`).
-- **Fitbit (Charge 6, etc.)** — real sync, not just import. Fitbit's Web API supports
-  browser-only OAuth (no backend needed, unlike Apple Watch), so Settings → Connect Fitbit
-  logs you in and "Sync now" pulls recent activities straight into your volume trend. Once
-  connected, Home also shows a "Today, from your Fitbit" card — steps, resting heart rate,
-  calories, refreshed on every open — plus a one-tap Claude breakdown of what today's numbers
-  mean next to your recent trend. (Genuinely continuous/intraday heart rate needs a separate
-  Fitbit approval this app doesn't request — this is the latest-synced numbers, not a live
-  stream; see `js/fitbit.js`.) See the setup steps and an important deprecation note below.
+- **Fitbit (Charge 6, etc.), via the Google Health API** — real sync, not just import
+  (Fitbit's old Web API was retired in Google's favor; see "Connecting a Fitbit" below).
+  Settings → Connect Fitbit logs you in via Google and "Sync now" pulls recent activities
+  straight into your volume trend. Once connected, Home also shows a "Today, from your
+  Fitbit" card — steps, resting heart rate, calories, and (model-dependent) active
+  minutes/sleep/HRV/SpO2 — refreshed on every open, plus an automatic daily Claude
+  breakdown of what today's numbers mean next to your recent trend, no tap required. No
+  Fitbit? The card swipes away and stays gone. (Genuinely continuous/intraday heart rate
+  needs a separate Google approval this app doesn't request — this is latest-synced
+  numbers, not a live stream; see `js/fitbit.js`.)
 - **Sync + accounts (optional)** — sign in (onboarding's last step, or Settings → Sync) to
   back this profile up off-device and unlock every Claude feature — there's no personal API
   key anywhere in this app anymore. See "Accounts, sync & Claude" below.
@@ -153,24 +155,34 @@ Claude Code to push the release, `CLAUDE.md` has the codebase map and convention
 
 ## Connecting a Fitbit (Charge 6 and others)
 
-This one's real-time-ish, not just file import, because Fitbit (unlike Apple/Garmin)
-supports OAuth login straight from a browser with no backend:
+Fitbit retired its old Web API in favor of the **Google Health API**
+(developers.google.com/health) — this app is built against that new API, not the
+retired one. The practical difference: Google's OAuth client for this API needs a client
+secret, which can't safely live in a static site, so Fitbit sync now goes through your
+household's Cloudflare Worker backend instead of being purely client-side like before.
+That means it needs two things set up first: the backend (`deploy-backend.sh`, see
+"Accounts, sync & Claude" above), and — separately — Google Health itself:
 
-1. Go to [dev.fitbit.com/apps/new](https://dev.fitbit.com/apps/new), log in with the same
-   account your Charge 6 is paired to.
-2. Fill in the form: **OAuth 2.0 Application Type: Client**, **Redirect URL:** your
-   deployed Bedrock URL exactly (Settings shows you the exact string to paste, once the
-   site is live on GitHub Pages).
-3. Save, copy the **Client ID** it gives you.
-4. In Bedrock → Settings → Fitbit card, paste the Client ID, tap **Connect Fitbit**, log in
-   and approve on Fitbit's page — you'll land back in Bedrock, connected.
-5. Tap **Sync now** whenever you want recent Fitbit activity logs pulled into your volume
-   trend. (Not automatic on page load, to avoid burning API rate limits — a manual tap.)
+1. `cd cloudflare-worker && ./setup-google-health.sh` — walks you through the Google Cloud
+   Console steps (create a project, enable the API, add yourself as a test user, create an
+   OAuth client) and wires the result into your backend. One-time, per household.
+2. In Bedrock, sign in under Settings → Sync (if you haven't), then Settings → **Connect
+   Fitbit** — you'll land on Google's consent screen, approve, and land back in Bedrock,
+   connected.
+3. Tap **Sync now** any time to pull recent activity logs into your volume trend, and check
+   Home for a "Today, from your Fitbit" card (steps, resting heart rate, calories, and —
+   depending on your specific Fitbit model — active minutes/sleep/HRV/SpO2) with an
+   automatic daily Claude read on how today compares to your recent trend.
 
-**⚠️ Important:** Fitbit has announced it's retiring this legacy Web API in September 2026
-in favor of the new Google Health API. This integration is built against the current API;
-if syncing breaks after that migration, that's why, and `js/fitbit.js` will need its
-endpoints updated to whatever Google Health publishes as the replacement.
+No Fitbit? The "Connect your Fitbit" card on Home swipes away (or tap the ✕) and won't
+come back — Settings has a link to bring it back if you get one later.
+
+**Two honest caveats:** (1) this is a genuinely new API (Google's migration window closes
+September 2026) that isn't fully documented publicly yet — `cloudflare-worker/src/index.js`'s
+`handleGoogleHealthToday`/`extractMetricValue` explain exactly which fields are verified
+vs. best-effort, and what to do if a stat ever looks wrong. (2) "Today" numbers are the
+latest Fitbit-synced totals, not a continuous live stream — real intraday/continuous heart
+rate needs a separate Google approval this app doesn't request.
 
 ## Connecting Apple Watch or Garmin
 
@@ -209,7 +221,7 @@ bedrock-fit/
   js/trajectory.js        volume tracking + projection math
   js/insights.js          data summary + cached daily insight + volume-landmark check
   js/nutrition.js         TDEE/macros, water, meals, food-photo estimate
-  js/fitbit.js             Fitbit OAuth (PKCE) + activity sync + today's live-ish summary
+  js/fitbit.js             Fitbit, via Google Health API — backend-mediated OAuth (see cloudflare-worker/)
   js/camera.js              in-page camera viewfinder + overlay guides
   js/app.js               UI controller / router
   cloudflare-worker/         optional backend: accounts, profile sync, Anthropic proxy (see its README)

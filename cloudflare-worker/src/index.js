@@ -5,12 +5,18 @@
  * and gives each invited account a profile that syncs across devices.
  *
  * Endpoints:
- *   POST /api/admin/create-user   { username, password }   [X-Admin-Secret]
- *   POST /api/login                { username, password } -> { token, username }
- *   POST /api/logout                                          [auth]
- *   GET  /api/profile                                         [auth]  -> { data, updated_at }
- *   PUT  /api/profile              { data }                   [auth]  -> upsert, returns { ok, updated_at }
- *   POST /api/anthropic            <Messages API body>        [auth]  (proxied, key injected)
+ *   POST /api/admin/create-user     { username, password }   [X-Admin-Secret]
+ *   POST /api/login                  { username, password } -> { token, username }
+ *   POST /api/logout                                            [auth]
+ *   GET  /api/profile                                           [auth]  -> { data, updated_at }
+ *   PUT  /api/profile                { data }                   [auth]  -> upsert, returns { ok, updated_at }
+ *   POST /api/anthropic              <Messages API body>        [auth]  (proxied, key injected)
+ *   GET  /api/google-health/connect                             [auth]  -> { url } to redirect the browser to
+ *   GET  /api/google-health/callback  ?code&state                       (Google redirects here directly — no bearer)
+ *   GET  /api/google-health/status                              [auth]  -> { connected }
+ *   GET  /api/google-health/today                               [auth]  -> today's steps/HR/calories/distance
+ *   GET  /api/google-health/activities  ?since=YYYY-MM-DD        [auth]  -> recent exercise sessions
+ *   POST /api/google-health/disconnect                          [auth]
  *
  * Auth: `Authorization: Bearer <token>` — token is a random 32-byte value;
  * only its SHA-256 hash is stored, so a DB read can't be replayed as a token.
@@ -24,12 +30,33 @@
  * exactly as Store.createBlankProfile() shapes it client-side (identity,
  * goals, history.*, customExercises, ...). The worker never parses it, just
  * stores/returns it, so new profile fields never need a migration here.
+ *
+ * Google Health API (Fitbit's Web API's replacement, see
+ * developers.google.com/health): unlike Fitbit's old "Client" app type,
+ * Google's OAuth client for this API is a confidential "Web Server" type —
+ * it requires a client secret, so the token exchange can't safely happen in
+ * the browser anymore. That's why this lives in the worker: Google tokens
+ * are stored here (google_health_tokens table) and never shipped to the
+ * client at all — actually a real security improvement over the old
+ * browser-PKCE Fitbit flow. See cloudflare-worker/README.md's "Google
+ * Health" section for setup (setup-google-health.sh) and — because this API
+ * is extremely new (migration window closes Sept 2026, docs are thin at
+ * time of writing — see extractMetricValue()'s comment) — where to look
+ * first if a response shape turns out to be wrong.
  */
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const ALLOWED_MODELS = new Set(['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5']);
 const MAX_TOKENS_CAP = 4096;
 const MAX_PROFILE_BYTES = 4_500_000; // generous, but D1 rows aren't unbounded — see schema.sql
+const GOOGLE_HEALTH_API = 'https://health.googleapis.com/v4';
+const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_HEALTH_SCOPES = [
+  'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
+  'https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly',
+].join(' ');
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes — connect attempts don't linger
 
 function resolveCorsOrigin(request, env) {
   const requestOrigin = request.headers.get('origin') || '';
@@ -207,6 +234,235 @@ async function handleAnthropic(request, env, user, cors) {
 }
 
 // ---------------------------------------------------------------------
+// Google Health (Fitbit replacement)
+// ---------------------------------------------------------------------
+function googleHealthConfigured(env) {
+  return !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_HEALTH_REDIRECT_URI);
+}
+
+async function handleGoogleHealthConnect(env, user, cors) {
+  if (!googleHealthConfigured(env)) return err('Google Health isn\'t set up on this backend yet — run cloudflare-worker/setup-google-health.sh', 503, cors);
+  const state = randomTokenHex(24);
+  const now = Date.now();
+  // Best-effort housekeeping: clear anything abandoned, then store this one.
+  await env.DB.prepare('DELETE FROM oauth_states WHERE created_at < ?').bind(now - OAUTH_STATE_TTL_MS).run();
+  await env.DB.prepare('INSERT INTO oauth_states (state, user_id, created_at) VALUES (?, ?, ?)').bind(state, user.user_id, now).run();
+
+  const url = new URL(GOOGLE_AUTH_URL);
+  url.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+  url.searchParams.set('redirect_uri', env.GOOGLE_HEALTH_REDIRECT_URI);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', GOOGLE_HEALTH_SCOPES);
+  url.searchParams.set('access_type', 'offline'); // needed to get a refresh_token back
+  url.searchParams.set('prompt', 'consent');       // forces a refresh_token even on a repeat connect
+  url.searchParams.set('state', state);
+  return json({ url: url.toString() }, 200, cors);
+}
+
+// Google redirects the bare browser here — no Authorization header exists
+// at this point, so `state` (bound to a user_id in handleGoogleHealthConnect)
+// is the only way to know which Bedrock account this belongs to. Ends with
+// an HTTP redirect back to the site, not a JSON response.
+async function handleGoogleHealthCallback(request, env) {
+  const url = new URL(request.url);
+  const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  const siteUrl = (env.SITE_URL || '').replace(/\/$/, '');
+  const fail = (reason) => Response.redirect(`${siteUrl}/?googleHealthError=${encodeURIComponent(reason)}`, 302);
+  if (!siteUrl) return new Response('Server misconfigured: SITE_URL not set', { status: 500 });
+  if (!code || !state) return fail('missing_code_or_state');
+  if (!googleHealthConfigured(env)) return fail('not_configured');
+
+  const stateRow = await env.DB.prepare('SELECT user_id FROM oauth_states WHERE state = ? AND created_at > ?')
+    .bind(state, Date.now() - OAUTH_STATE_TTL_MS).first();
+  await env.DB.prepare('DELETE FROM oauth_states WHERE state = ?').bind(state).run(); // one-time use either way
+  if (!stateRow) return fail('expired_or_invalid_state');
+
+  let tokenRes;
+  try {
+    tokenRes = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: env.GOOGLE_HEALTH_REDIRECT_URI, grant_type: 'authorization_code',
+      }),
+    });
+  } catch (e) { return fail('network'); }
+  if (!tokenRes.ok) return fail('token_exchange_failed');
+  const tokenData = await tokenRes.json();
+  if (!tokenData.access_token || !tokenData.refresh_token) return fail('no_refresh_token'); // happens if the user had already granted consent and Google skipped re-issuing one — prompt=consent above should prevent this, but just in case
+
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO google_health_tokens (user_id, access_token, refresh_token, expires_at, connected_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET access_token = excluded.access_token, refresh_token = excluded.refresh_token, expires_at = excluded.expires_at, connected_at = excluded.connected_at`
+  ).bind(stateRow.user_id, tokenData.access_token, tokenData.refresh_token, now + (tokenData.expires_in || 3600) * 1000, now).run();
+
+  return Response.redirect(`${siteUrl}/?googleHealthConnected=1`, 302);
+}
+
+// Returns a valid access token for this user, refreshing it first if it's
+// stale. Returns null if never connected or the refresh itself fails (e.g.
+// the user revoked access on Google's side) — callers treat that as
+// "not connected" rather than a hard error, same fallback-friendly pattern
+// as the rest of this app.
+async function getValidGoogleToken(env, userId) {
+  const row = await env.DB.prepare('SELECT access_token, refresh_token, expires_at FROM google_health_tokens WHERE user_id = ?').bind(userId).first();
+  if (!row) return null;
+  if (Date.now() < row.expires_at - 60000) return row.access_token;
+
+  try {
+    const res = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+        refresh_token: row.refresh_token, grant_type: 'refresh_token',
+      }),
+    });
+    if (!res.ok) {
+      if (res.status === 400 || res.status === 401) await env.DB.prepare('DELETE FROM google_health_tokens WHERE user_id = ?').bind(userId).run();
+      return null;
+    }
+    const data = await res.json();
+    const expiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+    // Google may or may not re-issue a refresh_token on refresh; keep the old one if not.
+    await env.DB.prepare('UPDATE google_health_tokens SET access_token = ?, refresh_token = COALESCE(?, refresh_token), expires_at = ? WHERE user_id = ?')
+      .bind(data.access_token, data.refresh_token || null, expiresAt, userId).run();
+    return data.access_token;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function handleGoogleHealthStatus(env, user, cors) {
+  const row = await env.DB.prepare('SELECT connected_at FROM google_health_tokens WHERE user_id = ?').bind(user.user_id).first();
+  return json({ connected: !!row }, 200, cors);
+}
+
+async function handleGoogleHealthDisconnect(env, user, cors) {
+  await env.DB.prepare('DELETE FROM google_health_tokens WHERE user_id = ?').bind(user.user_id).run();
+  return json({ ok: true }, 200, cors);
+}
+
+// The Google Health API is very new (this integration was written during
+// its migration window from the old Fitbit Web API) and its full field-level
+// response schema isn't fully documented publicly yet. Rather than assume
+// one exact shape and silently return wrong/zero numbers, this tries a few
+// plausible field names a Google metrics API tends to use. If Bedrock's
+// Fitbit-today card ever shows suspiciously empty/zero numbers for a
+// genuinely connected, active account: log the raw upstream JSON here
+// (`console.log` reaches the Cloudflare dashboard's Worker logs) and extend
+// this function with whatever the real field turns out to be.
+function extractMetricValue(rollupJson) {
+  if (rollupJson == null) return null;
+  if (typeof rollupJson === 'number') return rollupJson;
+  const candidates = [
+    rollupJson.value, rollupJson.floatValue, rollupJson.intValue, rollupJson.total,
+    rollupJson?.rollup?.value, rollupJson?.aggregateValue,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'number') return c;
+    if (c && typeof c === 'object' && typeof c.value === 'number') return c.value;
+  }
+  // Array-shaped rollups: take the most recent point's value.
+  const arr = Array.isArray(rollupJson) ? rollupJson : (rollupJson.dataPoints || rollupJson.points || null);
+  if (Array.isArray(arr) && arr.length) return extractMetricValue(arr[arr.length - 1]);
+  return null;
+}
+
+async function fetchDailyRollup(accessToken, dataType) {
+  try {
+    const res = await fetch(`${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dailyRollup?windowSize=1%20day`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    return extractMetricValue(await res.json());
+  } catch (e) {
+    return null;
+  }
+}
+
+// dataType ids: 'steps', 'active-energy-burned', 'basal-energy-burned',
+// 'daily-resting-heart-rate', and 'distance' are confirmed against the
+// migration docs at write time. The rest below (move-minutes,
+// sleep-duration, heart-rate-variability, oxygen-saturation) are the most
+// plausible ids given the API's naming convention and its documented data
+// categories (Activity & Fitness, Vitals, Sleep & Recovery) but are NOT
+// individually confirmed — each is wrapped in fetchDailyRollup's own
+// try/catch and simply comes back null on a 404/shape mismatch, so a wrong
+// guess here just means that one stat quietly doesn't show, never a crash.
+// If one keeps coming back null for a genuinely active/connected account,
+// check the Worker's logs (Cloudflare dashboard) for the raw 404 and correct
+// the id against developers.google.com/health's current reference.
+async function handleGoogleHealthToday(env, user, cors) {
+  const token = await getValidGoogleToken(env, user.user_id);
+  if (!token) return err('not_connected', 409, cors);
+
+  const [steps, activeCal, basalCal, restingHr, distanceM, moveMin, sleepMin, hrv, spo2] = await Promise.all([
+    fetchDailyRollup(token, 'steps'),
+    fetchDailyRollup(token, 'active-energy-burned'),
+    fetchDailyRollup(token, 'basal-energy-burned'),
+    fetchDailyRollup(token, 'daily-resting-heart-rate'),
+    fetchDailyRollup(token, 'distance'),
+    fetchDailyRollup(token, 'move-minutes'),
+    fetchDailyRollup(token, 'sleep-duration'),
+    fetchDailyRollup(token, 'heart-rate-variability'),
+    fetchDailyRollup(token, 'oxygen-saturation'),
+  ]);
+  const caloriesOut = (activeCal != null || basalCal != null) ? Math.round((activeCal || 0) + (basalCal || 0)) : null;
+  return json({
+    ok: true,
+    steps: steps != null ? Math.round(steps) : null,
+    restingHeartRate: restingHr != null ? Math.round(restingHr) : null,
+    caloriesOut,
+    distanceKm: distanceM != null ? Math.round((distanceM / 1000) * 10) / 10 : null,
+    activeMinutes: moveMin != null ? Math.round(moveMin) : null,
+    sleepHours: sleepMin != null ? Math.round((sleepMin / 60) * 10) / 10 : null,
+    hrv: hrv != null ? Math.round(hrv) : null,
+    spo2Pct: spo2 != null ? Math.round(spo2 * 10) / 10 : null,
+  }, 200, cors);
+}
+
+async function handleGoogleHealthActivities(request, env, user, cors) {
+  const token = await getValidGoogleToken(env, user.user_id);
+  if (!token) return err('not_connected', 409, cors);
+  const url = new URL(request.url);
+  const since = url.searchParams.get('since') || new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+  try {
+    const filter = `exercise.interval.civil_start_time >= "${since}T00:00:00"`;
+    const res = await fetch(`${GOOGLE_HEALTH_API}/users/me/dataTypes/exercise/dataPoints?filter=${encodeURIComponent(filter)}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return err('http_' + res.status, 502, cors);
+    const data = await res.json();
+    const points = data.dataPoints || data.points || (Array.isArray(data) ? data : []);
+    // Normalized to the exact shape js/fitbit.js's syncToProfile() already
+    // expects (it used to come from Fitbit's activities/list.json) — best
+    // effort against a very new response shape, see extractMetricValue's note.
+    const activities = points.map((p, i) => {
+      const interval = p.interval || {};
+      const metrics = p.metricsSummary || p.metrics || {};
+      return {
+        logId: p.id || p.dataPointId || `${interval.startTime || interval.civilStartTime || i}`,
+        activityName: p.exerciseType || p.name || 'Activity',
+        startTime: interval.startTime || interval.civilStartTime || p.startTime,
+        duration: interval.startTime && interval.endTime ? (new Date(interval.endTime) - new Date(interval.startTime)) : null,
+        calories: extractMetricValue(metrics.calories ?? metrics.activeEnergyBurned),
+        distance: extractMetricValue(metrics.distance),
+        steps: extractMetricValue(metrics.steps),
+        averageHeartRate: extractMetricValue(metrics.averageHeartRate ?? metrics.heartRate),
+      };
+    }).filter((a) => a.startTime);
+    return json({ ok: true, activities }, 200, cors);
+  } catch (e) {
+    return err('network', 502, cors);
+  }
+}
+
+// ---------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------
 export default {
@@ -227,6 +483,12 @@ export default {
       if (pathname === '/api/login' && method === 'POST') {
         return await handleLogin(request, env, cors);
       }
+      // Google itself navigates the browser here — no Authorization header
+      // exists on a plain redirect, so this must sit before the auth gate.
+      // `state` (not the auth gate) is what proves which account this is.
+      if (pathname === '/api/google-health/callback' && method === 'GET') {
+        return await handleGoogleHealthCallback(request, env);
+      }
 
       // Everything below requires a valid session.
       const user = await requireUser(request, env);
@@ -243,6 +505,21 @@ export default {
       }
       if (pathname === '/api/anthropic' && method === 'POST') {
         return await handleAnthropic(request, env, user, cors);
+      }
+      if (pathname === '/api/google-health/connect' && method === 'GET') {
+        return await handleGoogleHealthConnect(env, user, cors);
+      }
+      if (pathname === '/api/google-health/status' && method === 'GET') {
+        return await handleGoogleHealthStatus(env, user, cors);
+      }
+      if (pathname === '/api/google-health/today' && method === 'GET') {
+        return await handleGoogleHealthToday(env, user, cors);
+      }
+      if (pathname === '/api/google-health/activities' && method === 'GET') {
+        return await handleGoogleHealthActivities(request, env, user, cors);
+      }
+      if (pathname === '/api/google-health/disconnect' && method === 'POST') {
+        return await handleGoogleHealthDisconnect(env, user, cors);
       }
 
       return err('Not found', 404, cors);

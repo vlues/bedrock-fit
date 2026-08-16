@@ -249,8 +249,7 @@ function renderDashboard() {
     }
   });
 
-  $('fitbitBanner').hidden = Fitbit.isConnected();
-
+  renderFitbitBanner();
   renderDailyInsight();
   renderReadiness();
   renderHousehold();
@@ -258,8 +257,49 @@ function renderDashboard() {
   silentFitbitAutoSync();
 }
 
-// Live-ish Fitbit numbers for today (steps, resting HR, calories, active
-// minutes) — a lightweight GET, safe to refresh on every Home render.
+/* ---------------------------------------------------------------- */
+/* Fitbit (via Google Health) — Home cards                           */
+/* ---------------------------------------------------------------- */
+const FITBIT_BANNER_DISMISSED_KEY = 'bedrock_fitbit_banner_dismissed';
+
+// Not connected: an easy-to-swipe-away invite, not a permanent nag. Once
+// dismissed it stays gone (Settings has a "show it again" link, same
+// reversible pattern as excluded exercises).
+function renderFitbitBanner() {
+  const banner = $('fitbitBanner');
+  const dismissed = localStorage.getItem(FITBIT_BANNER_DISMISSED_KEY) === '1';
+  banner.hidden = Fitbit.isConnected() || dismissed;
+  banner.style.transform = '';
+  banner.style.opacity = '';
+}
+function dismissFitbitBanner() {
+  localStorage.setItem(FITBIT_BANNER_DISMISSED_KEY, '1');
+  $('fitbitBanner').hidden = true;
+}
+function wireFitbitBannerSwipe() {
+  const banner = $('fitbitBanner');
+  let startX = null;
+  banner.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
+  banner.addEventListener('touchmove', e => {
+    if (startX == null) return;
+    const dx = e.touches[0].clientX - startX;
+    banner.style.transform = `translateX(${dx}px)`;
+    banner.style.opacity = String(Math.max(0.15, 1 - Math.abs(dx) / 200));
+  }, { passive: true });
+  banner.addEventListener('touchend', e => {
+    if (startX == null) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    startX = null;
+    if (Math.abs(dx) > 110) dismissFitbitBanner();
+    else { banner.style.transform = ''; banner.style.opacity = ''; }
+  });
+}
+
+// Live-ish Fitbit numbers for today — a lightweight GET, safe to refresh on
+// every Home render. Only shows tiles for whatever the backend actually
+// returned (some fields are best-effort against a very new API — see
+// cloudflare-worker/src/index.js's handleGoogleHealthToday note — so an
+// unavailable stat just doesn't render a tile instead of showing a dash).
 let FITBIT_TODAY = null;
 async function renderFitbitToday() {
   const card = $('fitbitTodayCard');
@@ -268,30 +308,63 @@ async function renderFitbitToday() {
   if (!res.ok) { card.hidden = true; return; }
   FITBIT_TODAY = res;
   card.hidden = false;
-  const stat = (icon, val, label) => `
-    <div style="flex:1;">
-      <span class="ms" style="font-size:20px; opacity:0.55;">${icon}</span>
-      <div style="font-size:20px; font-weight:600; margin-top:4px;">${val ?? '—'}</div>
-      <div style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; opacity:0.45; margin-top:1px;">${label}</div>
+  const stat = (icon, val, label) => val == null ? '' : `
+    <div style="min-width:72px; flex:1;">
+      <span class="ms" style="font-size:19px; opacity:0.55;">${icon}</span>
+      <div style="font-size:19px; font-weight:600; margin-top:4px;">${val}</div>
+      <div style="font-size:10px; letter-spacing:.05em; text-transform:uppercase; opacity:0.45; margin-top:1px;">${label}</div>
     </div>`;
-  $('fitbitTodayStats').innerHTML =
-    stat('directions_walk', res.steps != null ? res.steps.toLocaleString() : null, 'Steps') +
-    stat('favorite', res.restingHeartRate, 'Resting HR') +
-    stat('local_fire_department', res.caloriesOut != null ? res.caloriesOut.toLocaleString() : null, 'Calories');
-  $('fitbitTodayNote').textContent = 'Resting heart rate updates as your Fitbit syncs through the day — this isn’t a continuous live feed (that needs Fitbit’s separate intraday API approval), just the latest synced numbers. ⌚ from your Fitbit';
+  $('fitbitTodayStats').innerHTML = [
+    stat('directions_walk', res.steps != null ? res.steps.toLocaleString() : null, 'Steps'),
+    stat('favorite', res.restingHeartRate, 'Resting HR'),
+    stat('local_fire_department', res.caloriesOut != null ? res.caloriesOut.toLocaleString() : null, 'Calories'),
+    stat('bolt', res.activeMinutes, 'Active min'),
+    stat('bedtime', res.sleepHours, 'Sleep (hr)'),
+    stat('monitor_heart', res.hrv, 'HRV'),
+    stat('water_drop', res.spo2Pct, 'SpO2 %'),
+    stat('distance', res.distanceKm, 'Distance (km)'),
+  ].filter(Boolean).join('');
+  $('fitbitTodayNote').textContent = 'Numbers update as your Fitbit syncs through the day — this isn’t a continuous live stream (that needs Google Health’s separate intraday approval), just the latest synced totals. Some stats (active minutes, sleep, HRV, SpO2) depend on what your specific Fitbit model tracks. ⌚ from your Fitbit';
+  loadFitbitBreakdown(false);
 }
 
-async function askFitbitBreakdown() {
-  if (!FITBIT_TODAY) return;
+function fitbitBreakdownCacheKey() { return `bedrock_fitbit_breakdown_${ACTIVE.id}_${new Date().toDateString()}`; }
+
+function buildFitbitBreakdownMessage() {
+  if (!FITBIT_TODAY) return null;
+  const t = FITBIT_TODAY;
+  const parts = [`Steps ${t.steps ?? '—'}`, `resting HR ${t.restingHeartRate ?? '—'} bpm`, `${t.caloriesOut ?? '—'} calories out`];
+  if (t.activeMinutes != null) parts.push(`${t.activeMinutes} active min`);
+  if (t.sleepHours != null) parts.push(`${t.sleepHours}h sleep`);
+  if (t.hrv != null) parts.push(`HRV ${t.hrv}`);
+  if (t.spo2Pct != null) parts.push(`SpO2 ${t.spo2Pct}%`);
+  const wearable = Fitbit.recentWearableSummary(ACTIVE);
+  let msg = `Today: ${parts.join(', ')}.`;
+  if (wearable) msg += `\nLast ${wearable.days} days (from logged Fitbit exercises): ${wearable.count} activities, ~${wearable.totalSteps} total steps${wearable.avgHr ? `, avg heart rate ~${wearable.avgHr} bpm` : ''}${wearable.totalDistanceKm ? `, ~${wearable.totalDistanceKm} km` : ''}.`;
+  return msg;
+}
+
+// Auto-populates once a day (cached, same pattern as Insights.getDailyInsight)
+// so a live-feeling breakdown is just already there when Home opens — no tap
+// required. `force` bypasses the cache for the manual "Refresh" button.
+async function loadFitbitBreakdown(force) {
+  const key = fitbitBreakdownCacheKey();
+  if (!force) {
+    const cached = localStorage.getItem(key);
+    if (cached) { $('fitbitBreakdownResult').hidden = false; $('fitbitBreakdownResult').textContent = cached; return; }
+  }
+  if (!Sync.isLoggedIn()) return; // no account signed in — leave it unpopulated rather than erroring
+  const msg = buildFitbitBreakdownMessage();
+  if (!msg) return;
   $('fitbitBreakdownResult').hidden = false;
   $('fitbitBreakdownResult').textContent = 'Thinking…';
-  const wearable = Fitbit.recentWearableSummary(ACTIVE);
-  const msg = `Today: ${FITBIT_TODAY.steps ?? '—'} steps, resting HR ${FITBIT_TODAY.restingHeartRate ?? '—'} bpm, ${FITBIT_TODAY.caloriesOut ?? '—'} calories out, ${FITBIT_TODAY.activeMinutes ?? 0} active minutes.` +
-    (wearable ? `\nLast ${wearable.days} days (from logged Fitbit exercises): ${wearable.count} activities, ~${wearable.totalSteps} total steps${wearable.avgHr ? `, avg heart rate ~${wearable.avgHr} bpm` : ''}${wearable.totalDistanceKm ? `, ~${wearable.totalDistanceKm} km` : ''}.` : '');
   const sys = BEDROCK_PERSONA + ' You will get today’s Fitbit numbers plus recent trend data. Give a short (3-4 sentence), practical read: how today looks relative to the recent trend, and whether it changes anything about training or recovery today. Resting heart rate trending up over days can flag under-recovery — mention that ONLY if the data actually suggests it. Not medical advice.';
   const res = await BedrockAPI.chat([{ role: 'user', content: msg }], sys);
-  $('fitbitBreakdownResult').textContent = res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
+  if (res.ok) { $('fitbitBreakdownResult').textContent = res.text; localStorage.setItem(key, res.text); }
+  else $('fitbitBreakdownResult').textContent = 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.';
 }
+
+function askFitbitBreakdown() { loadFitbitBreakdown(true); }
 
 // Not single-player: when two profiles share a device, show both side by
 // side. Pure local computation, no server, no accounts — just reads the
@@ -1156,8 +1229,6 @@ async function syncNowClick() {
 }
 
 function renderFitbitPanel() {
-  $('fitbitRedirectUri').textContent = location.href.split('?')[0].split('#')[0];
-  $('fitbitClientId').value = Fitbit.getClientId();
   const connected = Fitbit.isConnected();
   $('btnFitbitConnect').hidden = connected;
   $('btnFitbitSync').hidden = !connected;
@@ -1165,6 +1236,7 @@ function renderFitbitPanel() {
   $('fitbitStatus').textContent = connected
     ? `Connected — auto-syncs quietly whenever you open Bedrock (at most every 30 min).${ACTIVE.fitbitLastAutoSyncAt ? ' Last synced ' + timeAgo(ACTIVE.fitbitLastAutoSyncAt) + '.' : ''}`
     : 'Not connected yet.';
+  $('btnShowFitbitBanner').hidden = localStorage.getItem(FITBIT_BANNER_DISMISSED_KEY) !== '1';
 }
 
 function timeAgo(ts) {
@@ -1387,8 +1459,10 @@ function init() {
   $('btnCloseSwitcher').addEventListener('click', () => { $('switcherBackdrop').hidden = true; });
   $('switcherBackdrop').addEventListener('click', e => { if (e.target.id === 'switcherBackdrop') $('switcherBackdrop').hidden = true; });
   $('btnSettings').addEventListener('click', () => { showView('settings'); renderSettings(); });
-  $('btnGoConnectFitbit').addEventListener('click', () => { showView('settings'); renderSettings(); $('fitbitClientId').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+  $('btnGoConnectFitbit').addEventListener('click', () => { showView('settings'); renderSettings(); $('btnFitbitConnect').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
   $('btnFitbitBreakdown').addEventListener('click', askFitbitBreakdown);
+  $('btnDismissFitbitBanner').addEventListener('click', dismissFitbitBanner);
+  wireFitbitBannerSwipe();
   $('btnToggleTheme').addEventListener('click', toggleTheme);
   applyStoredTheme();
 
@@ -1434,10 +1508,10 @@ function init() {
 
   $('btnAddCustomEx').addEventListener('click', addCustomExercise);
 
-  $('btnFitbitConnect').addEventListener('click', () => { Fitbit.setClientId($('fitbitClientId').value.trim()); Fitbit.connect(); });
-  $('fitbitClientId').addEventListener('change', e => Fitbit.setClientId(e.target.value.trim()));
+  $('btnFitbitConnect').addEventListener('click', () => Fitbit.connect());
   $('btnFitbitSync').addEventListener('click', fitbitSyncClick);
   $('btnFitbitDisconnect').addEventListener('click', async () => { $('fitbitStatus').textContent = 'Disconnecting…'; await Fitbit.disconnect(); renderFitbitPanel(); });
+  $('btnShowFitbitBanner').addEventListener('click', () => { localStorage.removeItem(FITBIT_BANNER_DISMISSED_KEY); renderFitbitBanner(); renderFitbitPanel(); });
 
   qs('[data-close-chat]').addEventListener('click', () => showView('dashboard'));
   $('btnChatSend').addEventListener('click', sendChat);
@@ -1485,11 +1559,11 @@ function init() {
     showView('onboarding');
   }
 
-  // If we just landed back here from Fitbit's OAuth redirect, finish the
-  // flow and drop the user in Settings so they see "Connected."
-  Fitbit.handleRedirectIfPresent().then(connected => {
-    if (connected && ACTIVE) { showView('settings'); renderSettings(); }
-  });
+  // If we just landed back here from the Google Health OAuth redirect,
+  // drop the user in Settings so they see "Connected." (The token exchange
+  // already happened server-side, in the worker's callback — this is just
+  // reading the plain query flag it redirected back with.)
+  if (Fitbit.handleRedirectIfPresent() && ACTIVE) { showView('settings'); renderSettings(); }
 
   // Already signed in from a previous visit (token persists in
   // localStorage) — quietly pull whatever's newer from the cloud, e.g. a

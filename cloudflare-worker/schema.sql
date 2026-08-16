@@ -33,3 +33,28 @@ CREATE TABLE IF NOT EXISTS profile_data (
   data TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Google Health API (Fitbit's Web API was retired in favor of this — see
+-- developers.google.com/health). Tokens live ONLY here, server-side; the
+-- browser never sees a Google access/refresh token, which is actually a
+-- real security improvement over the old Fitbit PKCE-in-browser model.
+CREATE TABLE IF NOT EXISTS google_health_tokens (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  connected_at INTEGER NOT NULL
+);
+
+-- Short-lived: binds the OAuth `state` param to a Bedrock user_id across the
+-- redirect to Google and back, since Google's callback hits this worker
+-- directly (a plain browser navigation) with no Authorization header to
+-- identify the Bedrock session. Rows are deleted the moment they're
+-- consumed by the callback; a background sweep in the callback handler also
+-- clears anything older than 10 minutes so an abandoned connect attempt
+-- doesn't linger.
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);

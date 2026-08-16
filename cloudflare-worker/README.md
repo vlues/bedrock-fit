@@ -1,8 +1,11 @@
 # Bedrock API — Cloudflare Worker
 
 The backend behind `bedrock-fit/`. Holds the Anthropic API key server-side
-(never shipped to any browser) and gives each invited account a profile
-that syncs across devices — no per-device key entry anywhere, ever.
+(never shipped to any browser), gives each invited account a profile that
+syncs across devices, and — optionally — mediates Fitbit sync via the
+Google Health API (see "Google Health" below; Google's OAuth client for
+that needs a client secret, which is exactly the kind of thing this worker
+exists to hold so the browser never has to).
 
 ## One-time setup
 
@@ -40,10 +43,41 @@ Run it once per person. They sign in from the app's onboarding (last step)
 or Settings → Sync any time, on any device — their profile pulls down
 automatically.
 
+## Google Health (Fitbit sync) — optional, separate step
+
+```bash
+cd cloudflare-worker
+./setup-google-health.sh
+```
+
+Fitbit's old Web API was retired in favor of the Google Health API
+(developers.google.com/health). Unlike the old integration, Google's OAuth
+client for this API is a confidential type — it needs a client secret,
+so the whole flow (authorize, token exchange, refresh, and every data read)
+happens here in the worker; the browser never sees a Google token, only a
+non-secret "connected: true/false" flag. There's real Google Cloud Console
+setup involved (a project, enabling the API, an OAuth consent screen in
+"Testing" mode with test users, an OAuth client) — the script prints exact
+steps and links, then asks for just the two things it produces: your OAuth
+Client ID and Client Secret (secret piped straight to `wrangler secret put`,
+never written to a file).
+
+This API is very new (Google's Fitbit migration window closes ~Sept 2026)
+and its response schema isn't fully documented publicly at time of writing.
+`src/index.js`'s `handleGoogleHealthToday`/`handleGoogleHealthActivities`
+comments flag exactly which `dataType` ids and response fields are
+best-effort rather than confirmed — if a stat ever looks wrong for a
+genuinely connected, active account, check this worker's logs (Cloudflare
+dashboard → Workers → bedrock-api → Logs) for the raw upstream response
+before assuming the request-building logic is wrong.
+
 ## Config
 
 `wrangler.jsonc` → `vars.ALLOWED_ORIGIN` is a comma-separated CORS allowlist
 (your GitHub Pages origin + `http://localhost:8124` for local testing).
+Google Health config (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_HEALTH_REDIRECT_URI`, `SITE_URL`) lives in Worker secrets, set by
+`setup-google-health.sh` — nothing Google-related is in `wrangler.jsonc`.
 
 ## Data model
 
@@ -61,6 +95,14 @@ photos client-side to keep the blob manageable. The worker also hard-caps
 it (`MAX_PROFILE_BYTES` in `src/index.js`, currently 4.5MB) and returns a
 clear 413 if a profile ever grows past that — if you hit it, that's the
 sign to move photos to R2 rather than a bug.
+
+Two more tables back Google Health: `google_health_tokens` (one row per
+account — access/refresh token + expiry, server-side only, never sent to
+the browser) and `oauth_states` (short-lived, 10-minute TTL — binds the
+OAuth `state` param to a Bedrock user_id across the redirect to Google and
+back, since Google's callback is a bare browser navigation with no
+Authorization header to identify the session any other way; rows are
+deleted the moment they're used).
 
 ## Sync model (how conflicts are handled)
 
