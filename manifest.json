@@ -3,8 +3,13 @@
   "short_name": "Bedrock",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f4ede0",
-  "theme_color": "#7c6a52",
+  "background_color": "#f2ece0",
+  "theme_color": "#9a5138",
   "orientation": "portrait",
-  "icons": []
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }
