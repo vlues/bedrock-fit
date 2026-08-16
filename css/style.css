@@ -317,7 +317,7 @@ a{ color: var(--accent-text); }
 .shuffle-btn:active{ transform: scale(0.94); }
 .exercise-row .shuffle-btn{ padding:3px 8px; font-size:12px; margin-left:8px; border-radius:14px; }
 .set-row{ display:flex; gap:8px; align-items:center; margin-bottom:6px; }
-.set-row span{ width:44px; font-size:12px; color: var(--muted-text); }
+.set-row span{ width:24px; flex-shrink:0; font-size:13px; font-weight:600; color: var(--muted-text); }
 .set-row input{
   flex:1; padding:10px 10px; border-radius:12px; border:1px solid var(--card-border);
   background: var(--stepper-bg); font-size:15px; font-weight:600; text-align:center; color:var(--text);

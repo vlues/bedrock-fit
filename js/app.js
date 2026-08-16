@@ -579,7 +579,7 @@ function renderSetRows(exIdx) {
     const row = document.createElement('div');
     row.className = 'set-row';
     row.innerHTML = `
-      <span>Set ${sIdx + 1}</span>
+      <span>#${sIdx + 1}</span>
       <input type="number" inputmode="decimal" placeholder="lb" value="${s.weight}" data-field="weight">
       <input type="number" inputmode="numeric" placeholder="reps" value="${s.reps}" data-field="reps">
     `;

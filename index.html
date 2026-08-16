@@ -322,10 +322,10 @@
       </div>
 
       <div class="card" id="scanAiCard">
-        <h3>Ask Bedrock to look it over <span class="badge-optional">optional</span></h3>
+        <h3>Ask Bedrock to look it over</h3>
         <p class="muted-copy">Bedrock can give general, non-medical feedback on posture, symmetry, and photo consistency for tracking — not a body-fat or health diagnosis. No phone camera can accurately map where fat or muscle sits under the skin; Bedrock won't pretend otherwise.</p>
         <button class="btn btn-secondary btn-block" id="btnAskAiScan">Get feedback on latest photo</button>
-        <button class="btn btn-secondary btn-block" id="btnComparePhotos" hidden>Compare to your last photo <span class="badge-optional">optional</span></button>
+        <button class="btn btn-secondary btn-block" id="btnComparePhotos" hidden>Compare to your last photo</button>
         <div id="scanAiResult" class="ai-result" hidden></div>
         <div id="comparePhotosResult" class="ai-result" hidden></div>
 
@@ -427,7 +427,7 @@
           <div class="btn-row">
             <button class="btn btn-secondary" data-water="250">+250ml</button>
             <button class="btn btn-secondary" data-water="500">+500ml</button>
-            <button class="btn btn-ghost" data-water="-250">-250ml</button>
+            <button class="btn btn-secondary" data-water="-250">−250ml</button>
           </div>
         </div>
 
@@ -440,16 +440,16 @@
 
           <input type="text" id="mealName" hidden>
           <label class="field"><span>What did you eat?</span><input type="text" id="mealQuickText" placeholder="e.g. 2 eggs and toast with butter"></label>
-          <button class="btn btn-secondary btn-block" id="btnEstimateText">Estimate for me <span class="badge-optional">optional</span></button>
+          <button class="btn btn-secondary btn-block" id="btnEstimateText">Estimate for me</button>
           <input type="file" accept="image/*" capture="environment" id="foodPhotoInput" hidden>
-          <button class="btn btn-secondary btn-block" id="btnScanFood">📷 Or scan a photo <span class="badge-optional">optional</span></button>
+          <button class="btn btn-secondary btn-block" id="btnScanFood">📷 Or scan a photo</button>
 
           <div class="field-row" style="margin-top:10px;">
             <label class="field"><span>Calories</span><input type="number" id="mealCalories" inputmode="numeric"></label>
             <label class="field"><span>Protein (g)</span><input type="number" id="mealProtein" inputmode="numeric"></label>
           </div>
           <button class="btn btn-primary btn-block" id="btnAddMeal">Log it</button>
-          <button class="btn btn-secondary btn-block" id="btnSuggestMeal">What should I eat next? <span class="badge-optional">optional</span></button>
+          <button class="btn btn-secondary btn-block" id="btnSuggestMeal">What should I eat next?</button>
           <div id="mealSuggestResult" class="ai-result" hidden></div>
         </div>
       </div>
