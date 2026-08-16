@@ -1,0 +1,11 @@
+{
+  "name": "bedrock-proxy",
+  "main": "cloudflare-worker.js",
+  "compatibility_date": "2026-08-09",
+  "observability": { "enabled": true },
+  "vars": {
+    // Rewritten automatically by deploy-worker.sh to your actual GitHub
+    // Pages URL. Locks the proxy down so only your deployed site can call it.
+    "ALLOWED_ORIGIN": "https://REPLACE_ME.github.io/bedrock-fit"
+  }
+}

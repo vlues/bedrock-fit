@@ -1,0 +1,10 @@
+{
+  "name": "Bedrock — Training, Built Right",
+  "short_name": "Bedrock",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4ede0",
+  "theme_color": "#7c6a52",
+  "orientation": "portrait",
+  "icons": []
+}

@@ -1,0 +1,5 @@
+.DS_Store
+.wrangler/
+worker-example/.dev.vars
+worker-example/.env
+node_modules/

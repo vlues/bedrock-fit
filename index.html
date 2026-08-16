@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7c6a52">
+<title>Bedrock — Training, Built Right</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar" id="topbar" hidden>
+    <button class="iconbtn" id="btnSwitchProfile" aria-label="Switch profile">
+      <span class="avatar" id="avatarInitial">P</span>
+    </button>
+    <div class="topbar-title" id="topbarTitle">Bedrock</div>
+    <button class="iconbtn" id="btnSettings" aria-label="Settings">⚙</button>
+  </header>
+
+  <!-- ===== ONBOARDING ===== -->
+  <section class="view" id="view-onboarding">
+    <div class="onboard-wrap">
+
+      <div class="onboard-step" data-step="0">
+        <div class="brand">
+          <div class="brand-mark">⛰</div>
+          <h1>Bedrock</h1>
+          <p class="tagline">A training plan built on you, not a template.</p>
+        </div>
+        <p class="onboard-copy">Two profiles, one house. Let's set up yours first — it takes about two minutes.</p>
+        <button class="btn btn-primary btn-block" id="startOnboard">Get started</button>
+        <button class="btn btn-ghost btn-block" id="loadExisting" hidden>I already have a profile on this phone</button>
+      </div>
+
+      <div class="onboard-step" data-step="1" hidden>
+        <h2>Who's training?</h2>
+        <label class="field">
+          <span>Name</span>
+          <input type="text" id="ob-name" placeholder="e.g. Parker" autocomplete="given-name">
+        </label>
+        <label class="field">
+          <span>Age</span>
+          <input type="number" id="ob-age" placeholder="e.g. 27" min="13" max="90">
+        </label>
+        <label class="field">
+          <span>Biological sex <small>(used only for research-based calorie/strength baselines)</small></span>
+          <select id="ob-sex">
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Prefer not to say</option>
+          </select>
+        </label>
+        <div class="btn-row">
+          <button class="btn btn-ghost" data-back>Back</button>
+          <button class="btn btn-primary" data-next>Continue</button>
+        </div>
+      </div>
+
+      <div class="onboard-step" data-step="2" hidden>
+        <h2>Height & weight</h2>
+        <div class="unit-toggle" id="unit-toggle-weight">
+          <button type="button" class="unit-opt active" data-unit="lb">lb</button>
+          <button type="button" class="unit-opt" data-unit="kg">kg</button>
+        </div>
+        <label class="field">
+          <span>Current weight</span>
+          <input type="number" id="ob-weight" placeholder="e.g. 165" inputmode="decimal">
+        </label>
+
+        <div class="unit-toggle" id="unit-toggle-height">
+          <button type="button" class="unit-opt active" data-unit="ftin">ft/in</button>
+          <button type="button" class="unit-opt" data-unit="cm">cm</button>
+        </div>
+        <div class="field-row" id="height-ftin">
+          <label class="field">
+            <span>Feet</span>
+            <input type="number" id="ob-height-ft" placeholder="e.g. 5" inputmode="numeric">
+          </label>
+          <label class="field">
+            <span>Inches</span>
+            <input type="number" id="ob-height-in" placeholder="e.g. 9" inputmode="numeric">
+          </label>
+        </div>
+        <label class="field" id="height-cm" hidden>
+          <span>Height (cm)</span>
+          <input type="number" id="ob-height-cm-val" placeholder="e.g. 175" inputmode="decimal">
+        </label>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" data-back>Back</button>
+          <button class="btn btn-primary" data-next>Continue</button>
+        </div>
+      </div>
+
+      <div class="onboard-step" data-step="3" hidden>
+        <h2>What's the goal?</h2>
+        <p class="onboard-copy">Pick the one that matters most right now — the plan adapts around it.</p>
+        <div class="choice-grid" id="ob-goal">
+          <button type="button" class="choice-card" data-value="muscle">Build muscle</button>
+          <button type="button" class="choice-card" data-value="strength">Get stronger</button>
+          <button type="button" class="choice-card" data-value="fatloss">Lose fat, keep muscle</button>
+          <button type="button" class="choice-card" data-value="general">General fitness / health</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" data-back>Back</button>
+          <button class="btn btn-primary" data-next>Continue</button>
+        </div>
+      </div>
+
+      <div class="onboard-step" data-step="4" hidden>
+        <h2>Anywhere you want extra focus?</h2>
+        <p class="onboard-copy">Pick up to 2 — the plan gives these areas extra sets on top of a balanced base. Research on training specialization backs this: bumping volume for a lagging muscle group is the well-supported way to bring it up faster, without overhauling the whole program.</p>
+        <div class="choice-grid" id="ob-focus" data-multi="2">
+          <button type="button" class="choice-card" data-value="push">Chest, shoulders &amp; triceps (push)</button>
+          <button type="button" class="choice-card" data-value="pull">Back &amp; biceps (pull) — arm width</button>
+          <button type="button" class="choice-card" data-value="legs">Glutes &amp; legs</button>
+          <button type="button" class="choice-card" data-value="core">Abs / core (stomach)</button>
+        </div>
+        <p class="muted-copy">Picking both push and pull is the closest thing to "bigger arms" in one pick — biceps live in pull, triceps live in push.</p>
+        <div class="btn-row">
+          <button class="btn btn-ghost" data-back>Back</button>
+          <button class="btn btn-primary" data-next>Continue</button>
+        </div>
+      </div>
+
+      <div class="onboard-step" data-step="5" hidden>
+        <h2>How much gym experience?</h2>
+        <div class="choice-grid" id="ob-exp">
+          <button type="button" class="choice-card" data-value="new">Brand new — never really trained</button>
+          <button type="button" class="choice-card" data-value="machines">Comfortable on machines, new to free weights</button>
+          <button type="button" class="choice-card" data-value="intermediate">Trained consistently for 6+ months</button>
+          <button type="button" class="choice-card" data-value="advanced">Trained consistently for 2+ years</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" data-back>Back</button>
+          <button class="btn btn-primary" data-next>Continue</button>
+        </div>
+      </div>
+
+      <div class="onboard-step" data-step="6" hidden>
+        <h2>Days & equipment</h2>
+        <label class="field">
+          <span>Days per week you can realistically train</span>
+          <select id="ob-days">
+            <option value="2">2 days</option>
+            <option value="3" selected>3 days</option>
+            <option value="4">4 days</option>
+            <option value="5">5 days</option>
+            <option value="6">6 days</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Where are you training?</span>
+          <select id="ob-equipment">
+            <option value="full">Full gym (machines + free weights)</option>
+            <option value="machines">Machines only</option>
+            <option value="dumbbell">Dumbbells + bodyweight (home)</option>
+            <option value="bodyweight">Bodyweight only, no equipment</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Any injuries or movements to avoid? <small>(optional)</small></span>
+          <input type="text" id="ob-limitations" placeholder="e.g. bad left knee, no overhead press">
+        </label>
+        <div class="btn-row">
+          <button class="btn btn-ghost" data-back>Back</button>
+          <button class="btn btn-primary" data-next>Continue</button>
+        </div>
+      </div>
+
+      <div class="onboard-step" data-step="7" hidden>
+        <h2>One more thing</h2>
+        <p class="onboard-copy">Bedrock can ask a couple of AI follow-up questions to sharpen your plan (diet pattern, schedule quirks, past injuries). This needs an Anthropic API key — you can add one now or skip and add it later in Settings.</p>
+        <button class="btn btn-secondary btn-block" id="ob-add-key">Add API key now</button>
+        <p class="muted-copy" style="margin-top:14px;">Got a Fitbit? Connect it in Settings any time afterward — Home will remind you with a banner until you do.</p>
+        <button class="btn btn-ghost btn-block" id="ob-skip-key">Skip for now</button>
+        <div class="btn-row">
+          <button class="btn btn-ghost" data-back>Back</button>
+          <button class="btn btn-primary" data-next id="ob-finish">Build my plan</button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===== DASHBOARD ===== -->
+  <section class="view" id="view-dashboard" hidden>
+    <div class="page">
+      <div class="hero-card">
+        <p class="hero-eyebrow" id="dashGoalLabel">Goal: Build muscle</p>
+        <h2 id="dashGreeting">Welcome back</h2>
+        <p class="hero-sub" id="dashStreak">0 workouts logged</p>
+      </div>
+
+      <div class="card insight-card" id="insightCard">
+        <div class="card-head"><h3>Today's insight</h3><span class="badge-optional" id="insightBadge">daily</span></div>
+        <p id="insightText" class="muted-copy">Loading…</p>
+      </div>
+
+      <div class="card" id="fitbitBanner" hidden>
+        <div class="card-head"><h3>⌚ Connect your Fitbit</h3></div>
+        <p class="muted-copy">Charge 6 and other Fitbits can sync automatically — connect once in Settings and forget about it.</p>
+        <button class="btn btn-secondary btn-block" id="btnGoConnectFitbit">Connect Fitbit</button>
+      </div>
+
+      <div class="card" id="readinessCard" hidden>
+        <div class="card-head"><h3>Training load</h3><span class="badge-optional">ACWR · sports-science</span></div>
+        <div id="readinessBody"></div>
+      </div>
+
+      <div class="card" id="householdCard" hidden>
+        <div class="card-head"><h3>Household</h3><span class="badge-optional">this week</span></div>
+        <div id="householdBody"></div>
+      </div>
+
+      <div class="card" id="todayCard">
+        <div class="card-head">
+          <h3>Today's session</h3>
+          <span class="pill" id="todayDayPill">Day 1</span>
+        </div>
+        <div id="todayExerciseList" class="exercise-list"></div>
+        <button class="btn btn-primary btn-block" id="btnStartWorkout">Start workout</button>
+      </div>
+
+      <div class="card-grid">
+        <button class="tile" id="tileProgress">
+          <span class="tile-icon">📈</span>
+          <span>Progress</span>
+        </button>
+        <button class="tile" id="tileSupplements">
+          <span class="tile-icon">🌿</span>
+          <span>Fuel</span>
+        </button>
+      </div>
+
+      <button class="btn btn-ghost btn-block" id="tileWeekPlan" style="margin-top:14px;">🗓 See full week ▾</button>
+      <div class="card week-list" id="weekAccordionCard" hidden></div>
+    </div>
+  </section>
+
+  <!-- ===== WORKOUT (active session) ===== -->
+  <section class="view" id="view-workout" hidden>
+    <div class="page">
+      <button class="btn btn-ghost" data-close-workout>← Back to dashboard</button>
+      <h2 id="workoutTitle">Session</h2>
+      <div id="workoutList" class="workout-log-list"></div>
+      <button class="btn btn-primary btn-block" id="btnFinishWorkout">Finish & save</button>
+    </div>
+    <div class="rest-timer-bar" id="restTimerBar" hidden>
+      <span id="restTimerLabel">Rest — 1:30</span>
+      <div class="rest-timer-actions">
+        <button class="rest-timer-btn" id="btnRestAdd30">+30s</button>
+        <button class="rest-timer-btn" id="btnRestSkip">Skip</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== PROGRESS / SCAN ===== -->
+  <section class="view" id="view-progress" hidden>
+    <div class="page">
+      <button class="btn btn-ghost" data-close-progress>← Back</button>
+      <h2>Progress check-in</h2>
+
+      <div class="card">
+        <h3>Standing photo</h3>
+        <p class="muted-copy">Same spot, same lighting, same time of day if you can. Stand relaxed, arms slightly away from your body, facing the camera.</p>
+        <div class="scan-guide">
+          <div class="scan-silhouette">🧍</div>
+          <p class="scan-tip" id="scanTip">Tip: prop your phone at chest height, about 6 feet back.</p>
+        </div>
+        <input type="file" accept="image/*" capture="environment" id="scanPhotoInput" hidden>
+        <button class="btn btn-secondary btn-block" id="btnTakePhoto">Take / upload photo</button>
+        <div id="scanPhotoPreview" class="scan-preview" hidden></div>
+      </div>
+
+      <div class="card">
+        <h3>Measurements</h3>
+        <div class="field-row">
+          <label class="field"><span>Weight</span><input type="number" id="scan-weight" inputmode="decimal"></label>
+          <label class="field"><span>Waist</span><input type="number" id="scan-waist" inputmode="decimal"></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>Chest</span><input type="number" id="scan-chest" inputmode="decimal"></label>
+          <label class="field"><span>Arm</span><input type="number" id="scan-arm" inputmode="decimal"></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>Hips / glutes</span><input type="number" id="scan-hips" inputmode="decimal"></label>
+          <label class="field"><span>Thigh</span><input type="number" id="scan-thigh" inputmode="decimal"></label>
+        </div>
+        <button class="btn btn-primary btn-block" id="btnSaveScan">Save check-in</button>
+      </div>
+
+      <div class="card" id="scanAiCard">
+        <h3>Ask Bedrock to look it over <span class="badge-optional">optional</span></h3>
+        <p class="muted-copy">Bedrock can give general, non-medical feedback on posture, symmetry, and photo consistency for tracking — not a body-fat or health diagnosis. No phone camera can accurately map where fat or muscle sits under the skin; Bedrock won't pretend otherwise.</p>
+        <button class="btn btn-secondary btn-block" id="btnAskAiScan">Get feedback on latest photo</button>
+        <button class="btn btn-secondary btn-block" id="btnComparePhotos" hidden>Compare to your last photo <span class="badge-optional">optional</span></button>
+        <div id="scanAiResult" class="ai-result" hidden></div>
+        <div id="comparePhotosResult" class="ai-result" hidden></div>
+
+        <div class="scan-preview" id="latestPhotoWrap" style="position:relative; margin-top:12px;" hidden>
+          <img id="scanHistoryPhoto" alt="latest progress photo" style="width:100%; display:block; border-radius:16px;">
+          <canvas id="focusOverlayCanvas" style="position:absolute; inset:0; width:100%; height:100%;" hidden></canvas>
+        </div>
+        <button class="btn btn-ghost btn-block" id="btnToggleFocusOverlay" hidden>🎯 Show my focus areas on this photo</button>
+      </div>
+
+      <div class="card">
+        <h3>Weight trend</h3>
+        <canvas id="progressChart" width="320" height="160"></canvas>
+        <p class="muted-copy" id="weightCaption"></p>
+        <div id="scanHistory" class="scan-history"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Muscle balance</h3><span class="badge-optional">last 28 days</span></div>
+        <canvas id="muscleChart" width="320" height="140"></canvas>
+        <p class="muted-copy" id="muscleCaption"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Exercise progression</h3></div>
+        <label class="field"><span>Pick a lift</span>
+          <select id="exercisePicker"></select>
+        </label>
+        <canvas id="exerciseChart" width="320" height="140"></canvas>
+        <p class="muted-copy" id="exerciseCaption"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Trajectory</h3>
+          <span class="badge-optional">estimate</span>
+        </div>
+        <p class="muted-copy">📊 From your logs — built automatically from the sets, reps, and weight you log every session, plus device data if Fitbit is connected. The more sessions logged, the sharper this gets.</p>
+        <canvas id="volumeChart" width="320" height="140"></canvas>
+        <div id="trajectoryStats" class="scan-history"></div>
+        <p class="muted-copy" id="dataMaturityNote"></p>
+        <button class="btn btn-secondary btn-block" id="btnAskTrajectory" hidden>🤖 Ask Bedrock to read this trend</button>
+        <div id="trajectoryAiResult" class="ai-result" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SUPPLEMENTS ===== -->
+  <section class="view" id="view-supplements" hidden>
+    <div class="page">
+      <button class="btn btn-ghost" data-close-supplements>← Back</button>
+      <h2>Fuel</h2>
+      <div class="chip-row" id="fuelTabs">
+        <button class="chip active" data-tab="supplements">Supplements</button>
+        <button class="chip" data-tab="nutrition">Nutrition</button>
+      </div>
+
+      <div id="panel-supplements">
+        <div class="disclaimer-banner">
+          General, evidence-based education — not medical advice. Supplements aren't required for results; food and training do the heavy lifting. Check with a doctor before starting anything new, especially if you take medication, are pregnant/nursing, or have a health condition.
+        </div>
+        <div class="chip-row" id="supplementFilter">
+          <button class="chip active" data-filter="all">All</button>
+          <button class="chip" data-filter="muscle">Muscle</button>
+          <button class="chip" data-filter="fatloss">Fat loss</button>
+          <button class="chip" data-filter="performance">Performance</button>
+          <button class="chip" data-filter="health">General health</button>
+        </div>
+        <button class="btn btn-secondary btn-block" id="btnAiSupplements">Get Bedrock's personalized read <span class="badge-optional">optional</span></button>
+        <div id="aiSupplementResult" class="ai-result" hidden></div>
+        <div id="supplementList" class="supplement-list"></div>
+      </div>
+
+      <div id="panel-nutrition" hidden>
+        <div class="card">
+          <div class="card-head"><h3>Daily target</h3><span class="badge-optional">Mifflin-St Jeor</span></div>
+          <div id="nutritionTargets" class="scan-history"></div>
+          <p class="muted-copy">Estimated from your height, weight, age, sex, and training days — a research-standard formula, not a lab measurement. Treat it as a starting point and adjust based on real results.</p>
+        </div>
+
+        <div class="card">
+          <h3>Water</h3>
+          <div id="waterProgress" class="scan-history"></div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" data-water="250">+250ml</button>
+            <button class="btn btn-secondary" data-water="500">+500ml</button>
+            <button class="btn btn-ghost" data-water="-250">-250ml</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Today's food</h3>
+          <div id="remainingToday" class="scan-history"></div>
+          <div id="mealList" class="scan-history"></div>
+
+          <div id="frequentMealChips" class="chip-row"></div>
+
+          <input type="text" id="mealName" hidden>
+          <label class="field"><span>What did you eat?</span><input type="text" id="mealQuickText" placeholder="e.g. 2 eggs and toast with butter"></label>
+          <button class="btn btn-secondary btn-block" id="btnEstimateText">Estimate for me <span class="badge-optional">optional</span></button>
+          <input type="file" accept="image/*" capture="environment" id="foodPhotoInput" hidden>
+          <button class="btn btn-secondary btn-block" id="btnScanFood">📷 Or scan a photo <span class="badge-optional">optional</span></button>
+
+          <div class="field-row" style="margin-top:10px;">
+            <label class="field"><span>Calories</span><input type="number" id="mealCalories" inputmode="numeric"></label>
+            <label class="field"><span>Protein (g)</span><input type="number" id="mealProtein" inputmode="numeric"></label>
+          </div>
+          <button class="btn btn-primary btn-block" id="btnAddMeal">Log it</button>
+          <button class="btn btn-secondary btn-block" id="btnSuggestMeal">What should I eat next? <span class="badge-optional">optional</span></button>
+          <div id="mealSuggestResult" class="ai-result" hidden></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== CHAT ===== -->
+  <section class="view" id="view-chat" hidden>
+    <div class="page page-chat">
+      <button class="btn btn-ghost" data-close-chat>← Back</button>
+      <h2>Ask Bedrock</h2>
+      <div class="chip-row" id="chatPrompts"></div>
+      <div id="chatLog" class="chat-log"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="Ask about your plan, form, recovery…">
+        <button class="btn btn-primary" id="btnChatSend">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== GUIDE ===== -->
+  <section class="view" id="view-guide" hidden>
+    <div class="page">
+      <button class="btn btn-ghost" data-close-guide>← Back</button>
+      <h2>How Bedrock works</h2>
+      <div class="card">
+        <h3>1. Your plan</h3>
+        <p class="muted-copy">Home shows today's session, built from your goal, experience, and equipment. Full week under the Plan tab. Weights suggested each set come from what you logged last time — the plan sharpens as you log more.</p>
+      </div>
+      <div class="card">
+        <h3>2. Logging a workout</h3>
+        <p class="muted-copy">Tap Start workout, fill in weight + reps per set, add sets if needed, Finish & save. That's the only data entry Bedrock needs to start tracking volume, PRs, and trends automatically. Unsure on form? Tap "Show proper form" under any exercise for a quick cue plus a link to a live video search — Bedrock doesn't guess at a specific video, it points you to search results so you're not stuck with one unverified clip.</p>
+      </div>
+      <div class="card">
+        <h3>3. Progress check-ins</h3>
+        <p class="muted-copy">A standing photo + measurements (including hips/thigh now, so glutes/legs focus has real numbers behind it), whenever you want a check-in. The camera shows a live skeleton guide (a real pose-detection model, not a gimmick) to help you frame consistently — it's for alignment only, never for reading body fat, which no phone camera can actually do. If you picked focus areas in onboarding, a "show my focus areas" button overlays your real measurement trends near the relevant joints on your latest photo.</p>
+      </div>
+      <div class="card">
+        <h3>4. Fuel</h3>
+        <p class="muted-copy">Supplement education, plus a nutrition tab: daily calorie/protein target, a water tracker, and a food log (type it in, or scan a photo for a rough AI estimate you can edit before saving).</p>
+      </div>
+      <div class="card">
+        <h3>5. Bedrock's AI features (optional)</h3>
+        <p class="muted-copy">Add your Anthropic API key in Settings to unlock: a daily insight on Home, data-grounded chat under Ask, photo feedback and trend commentary under Progress, and meal suggestions under Fuel. Everything works without a key too — you just lose the AI layer.</p>
+      </div>
+      <div class="card">
+        <h3>6. Two profiles, one app</h3>
+        <p class="muted-copy">Tap your avatar (top-left) to switch profiles or add a second one — each person's history stays separate on their device. If two profiles share a device, Home shows a Household card comparing sessions this week.</p>
+      </div>
+      <div class="card">
+        <h3>7. Where does each number come from?</h3>
+        <p class="muted-copy">Bedrock labels this on purpose so you always know what you're looking at: <b>📊 from your logs</b> means it's computed straight from what you've entered (workouts, check-ins) or synced from Fitbit — pure math, no AI. <b>⌚</b> marks anything pulled from a connected wearable. <b>🤖</b> marks anything Bedrock generated — commentary, suggestions, estimates — which is always optional and always has a non-AI fallback if you skip the API key.</p>
+      </div>
+      <div class="card">
+        <h3>8. Training load & plateau detection</h3>
+        <p class="muted-copy">Progress → Trajectory includes a training-load gauge (acute:chronic workload ratio) — a real sports-science metric used by strength coaches to flag when your volume is climbing faster than your body's adapted to. Separately, if a lift goes 3 sessions with zero weight increase, Bedrock automatically swaps in a fresh exercise for that muscle next session instead of just repeating it — the plan adapts on its own.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SETTINGS ===== -->
+  <section class="view" id="view-settings" hidden>
+    <div class="page">
+      <button class="btn btn-ghost" data-close-settings>← Back</button>
+      <h2>Settings</h2>
+
+      <div class="card">
+        <h3>Claude API key</h3>
+        <p class="muted-copy">Stored only in this browser, on this phone. Never sent anywhere except directly to Anthropic when Bedrock asks a question on your behalf.</p>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="settingsApiKey" placeholder="sk-ant-…">
+        </label>
+        <button class="btn btn-primary btn-block" id="btnSaveKey">Save key</button>
+        <p class="key-status" id="keyStatus">No key saved yet.</p>
+      </div>
+
+      <div class="card">
+        <h3>Units</h3>
+        <div class="unit-toggle" id="settingsUnitWeight">
+          <button type="button" class="unit-opt" data-unit="lb">lb</button>
+          <button type="button" class="unit-opt" data-unit="kg">kg</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Your equipment & custom exercises</h3>
+        <p class="muted-copy">Got a machine or setup not in the built-in list? Add it here and it'll show up in your plan.</p>
+        <div class="field-row">
+          <label class="field"><span>Name</span><input type="text" id="customExName" placeholder="e.g. Cybex leg press"></label>
+          <label class="field"><span>Targets</span>
+            <select id="customExMuscle">
+              <option value="legs">Legs</option>
+              <option value="push">Push (chest/shoulders/triceps)</option>
+              <option value="pull">Pull (back/biceps)</option>
+              <option value="core">Core</option>
+            </select>
+          </label>
+        </div>
+        <button class="btn btn-secondary btn-block" id="btnAddCustomEx">+ Add to my exercise pool</button>
+        <div id="customExList" class="scan-history"></div>
+      </div>
+
+      <div class="card" id="excludedExSection" hidden>
+        <h3>Skipped exercises</h3>
+        <p class="muted-copy">Exercises you've shuffled away won't show up in your plan. Bring any back whenever you want.</p>
+        <div id="excludedExList" class="scan-history"></div>
+      </div>
+
+      <div class="card">
+        <h3>Profiles</h3>
+        <div id="profileManageList"></div>
+        <button class="btn btn-secondary btn-block" id="btnAddProfile">Add another profile</button>
+      </div>
+
+      <div class="card">
+        <h3>⌚ Fitbit (Charge 6, etc.)</h3>
+        <p class="muted-copy">Real-time-ish sync via Fitbit's own API — no file export needed. Requires a free Fitbit developer app (2 min setup, one time). <span id="fitbitDeprecationNote">Heads up: Fitbit is retiring this API in Sept 2026 — this may need an update after that.</span></p>
+        <label class="field"><span>Fitbit Client ID</span><input type="text" id="fitbitClientId" placeholder="from dev.fitbit.com/apps"></label>
+        <p class="muted-copy">Redirect URL to register: <code id="fitbitRedirectUri"></code></p>
+        <button class="btn btn-secondary btn-block" id="btnFitbitConnect">Connect Fitbit</button>
+        <button class="btn btn-primary btn-block" id="btnFitbitSync" hidden>Sync now</button>
+        <button class="btn btn-ghost btn-block danger" id="btnFitbitDisconnect" hidden>Disconnect</button>
+        <p class="key-status" id="fitbitStatus"></p>
+      </div>
+
+      <div class="card">
+        <h3>Data</h3>
+        <button class="btn btn-ghost btn-block" id="btnExportData">Export my data (JSON)</button>
+        <p class="muted-copy" style="margin-top:10px;">Or import a Garmin Connect CSV export or an Apple Health export — drag a file below or tap to browse.</p>
+        <div class="dropzone" id="importDropzone">
+          <span>⬆ Drop file here, or tap to choose</span>
+          <input type="file" accept=".csv,.json,.xml" id="importDataInput" hidden>
+        </div>
+        <p class="key-status" id="importStatus"></p>
+        <button class="btn btn-ghost btn-block danger" id="btnResetProfile">Reset this profile</button>
+      </div>
+
+      <div class="card">
+        <h3>New here?</h3>
+        <button class="btn btn-secondary btn-block" id="btnOpenGuide">Open the guide</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== PR / STREAK CELEBRATION TOAST ===== -->
+  <div class="pr-toast" id="prToast" hidden></div>
+
+  <!-- ===== IN-PAGE CAMERA ===== -->
+  <div class="camera-overlay" id="cameraOverlay" hidden>
+    <video id="cameraVideo" autoplay playsinline muted></video>
+    <canvas id="cameraPoseCanvas" class="camera-pose-canvas"></canvas>
+    <div class="camera-guide" id="cameraGuide"></div>
+    <canvas id="cameraCanvas" hidden></canvas>
+    <div class="camera-flash" id="cameraFlash"></div>
+    <button class="camera-torch" id="cameraTorch" aria-label="Toggle flashlight" hidden>🔦</button>
+    <p class="camera-tip" id="cameraTip"></p>
+    <div class="camera-controls">
+      <button class="camera-btn-ghost" id="cameraCancel">Cancel</button>
+      <button class="camera-shutter" id="cameraShutter" aria-label="Capture photo"></button>
+      <button class="camera-btn-ghost" id="cameraSwitch" aria-label="Switch camera">⟳</button>
+    </div>
+    <div class="camera-review" id="cameraReview" hidden>
+      <img id="cameraReviewImg" alt="Captured photo preview">
+      <div class="camera-review-controls">
+        <button class="btn btn-ghost" id="cameraRetake">↺ Retake</button>
+        <button class="btn btn-primary" id="cameraUsePhoto">Use photo ✓</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PROFILE SWITCHER SHEET ===== -->
+  <div class="sheet-backdrop" id="switcherBackdrop" hidden>
+    <div class="sheet">
+      <h3>Switch profile</h3>
+      <div id="switcherList" class="switcher-list"></div>
+      <button class="btn btn-ghost btn-block" id="btnCloseSwitcher">Close</button>
+    </div>
+  </div>
+
+  <!-- ===== BOTTOM NAV ===== -->
+  <nav class="bottomnav" id="bottomnav" hidden>
+    <button class="navbtn active" data-nav="dashboard"><span>🏠</span><small>Home</small></button>
+    <button class="navbtn" data-nav="progress"><span>📈</span><small>Progress</small></button>
+    <button class="navbtn" data-nav="supplements"><span>🌿</span><small>Fuel</small></button>
+    <button class="navbtn" data-nav="chat"><span>💬</span><small>Ask</small></button>
+  </nav>
+
+</div>
+
+<script src="js/store.js"></script>
+<script src="js/api.js"></script>
+<script src="js/workout.js"></script>
+<script src="js/supplements.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/scan.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/trajectory.js"></script>
+<script src="js/insights.js"></script>
+<script src="js/nutrition.js"></script>
+<script src="js/fitbit.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
