@@ -6,14 +6,14 @@
   "vars": {
     // Rewritten automatically by deploy-backend.sh to your GitHub Pages URL
     // (and localhost, for testing a local copy against the live API).
-    "ALLOWED_ORIGIN": "https://REPLACE_ME.github.io,http://localhost:8124"
+    "ALLOWED_ORIGIN": "https://vlues.github.io,http://localhost:8124"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "bedrock-db",
       // Filled in by deploy-backend.sh right after `wrangler d1 create`.
-      "database_id": "REPLACE_ME"
+      "database_id": "e165282a-9e06-4f64-94cb-57b3ab43cc11"
     }
   ]
 }
