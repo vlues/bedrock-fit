@@ -160,9 +160,14 @@ a{ color: var(--accent-text); }
 
 /* ---------- top bar ---------- */
 .topbar{
+  /* viewport-fit=cover + apple-mobile-web-app-status-bar-style:
+     black-translucent (see index.html <head>) means the installed iOS app
+     draws edge-to-edge under the status bar/notch/Dynamic Island — without
+     this safe-area padding, the avatar/title/settings row renders crammed
+     up against (or partly under) it. Plain padding-top wasn't enough. */
   position: sticky; top:0; z-index: 20;
   display:flex; align-items:center; justify-content:space-between;
-  padding: 14px 16px;
+  padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
   background: color-mix(in oklch, var(--bg) 88%, transparent);
   backdrop-filter: blur(14px) saturate(1.4);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
@@ -246,7 +251,7 @@ a{ color: var(--accent-text); }
    all between them by default — they touched edge to edge, relying on
    manual margin-top sprinkled inconsistently on some but not others. One
    rule, applies everywhere. */
-.btn-block + .btn-block{ margin-top: 10px; }
+.btn-block + .btn-block{ margin-top: 12px; }
 .btn-primary{ background: var(--clay-grad); color: #fff; box-shadow: 0 10px 26px var(--clay-grad-shadow); }
 .btn-secondary{ background: var(--pill-olive); color: var(--olive-text); }
 .btn-ghost{ background: transparent; color: var(--muted-text); padding-left:6px; box-shadow:none; }
@@ -349,6 +354,12 @@ a{ color: var(--accent-text); }
 .ai-result{ margin-top:12px; background: var(--week-bg); border-radius: var(--radius-sm); padding:12px; font-size:14px; line-height:1.5; }
 .scan-history{ margin-top:10px; display:flex; flex-direction:column; gap:0; }
 .scan-history-row{ display:flex; justify-content:space-between; font-size:13px; color: var(--muted-text); border-bottom:1px solid var(--hairline); padding:8px 0; }
+.photo-history-strip{ display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; margin-top:10px; }
+.photo-history-thumb{
+  width:64px; height:64px; flex-shrink:0; border-radius:14px; object-fit:cover; cursor:pointer;
+  border:1px solid var(--card-border); transition: transform .2s var(--ease);
+}
+.photo-history-thumb:active{ transform: scale(0.94); }
 
 /* ---------- supplements ---------- */
 .disclaimer-banner{
@@ -473,6 +484,18 @@ a{ color: var(--accent-text); }
   border-radius: 999px; padding: 8px 12px; font-size: 15px; cursor: pointer;
 }
 .camera-torch.camera-torch-on{ background: oklch(0.64 0.12 46); border-color: oklch(0.64 0.12 46); }
+.camera-timer-btn{
+  position: absolute; top: calc(18px + env(safe-area-inset-top)); left: 18px; z-index: 3;
+  background: oklch(0.1 0.01 56 / 0.5); color: oklch(0.94 0.012 82); border: 1px solid oklch(0.94 0.012 82 / 0.3);
+  border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.camera-timer-btn.camera-timer-on{ background: oklch(0.64 0.12 46); border-color: oklch(0.64 0.12 46); }
+.camera-countdown{
+  position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+  font-size: 120px; font-weight: 700; color: oklch(0.98 0.008 80);
+  text-shadow: 0 4px 24px oklch(0 0 0 / 0.5); pointer-events: none;
+  animation: pulse 1s var(--ease) infinite;
+}
 .camera-review{
   position: absolute; inset: 0; z-index: 6; background: oklch(0.185 0.016 56);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;

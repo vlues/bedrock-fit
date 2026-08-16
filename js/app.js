@@ -743,9 +743,39 @@ function renderProgress() {
   drawMuscleChart();
   drawExerciseChart();
   renderScanHistory();
+  renderPhotoHistory();
   renderTrajectoryStats();
   drawFitbitTrendChart();
   renderPastWorkouts();
+}
+
+// Every check-in photo you've ever taken was already being saved
+// (profile.history.checkins[].photo) — it just had no browsable UI, only
+// the single latest photo ever showed up anywhere. This is that history:
+// a tap-to-view strip, oldest logic untouched, purely additive.
+function renderPhotoHistory() {
+  const card = $('photoHistoryCard');
+  const strip = $('photoHistoryStrip');
+  const withPhotos = (ACTIVE.history.checkins || []).filter(c => c.photo).slice().reverse();
+  if (!withPhotos.length) { card.hidden = true; return; }
+  card.hidden = false;
+  strip.innerHTML = '';
+  withPhotos.forEach(c => {
+    const img = document.createElement('img');
+    img.className = 'photo-history-thumb';
+    img.src = c.photo;
+    img.alt = `Check-in from ${new Date(c.date).toLocaleDateString()}`;
+    img.addEventListener('click', () => openPhotoLightbox(c));
+    strip.appendChild(img);
+  });
+}
+
+function openPhotoLightbox(checkin) {
+  $('photoLightboxImg').src = checkin.photo;
+  const parts = [new Date(checkin.date).toLocaleDateString()];
+  if (checkin.weight != null) parts.push(displayWeight(checkin.weight));
+  $('photoLightboxCaption').textContent = parts.join(' · ');
+  $('photoLightbox').hidden = false;
 }
 
 // Steps over the last two weeks — built from the daily snapshots
@@ -1526,6 +1556,8 @@ function init() {
   $('btnSwitchProfile').addEventListener('click', () => openSwitcher(false));
   $('btnCloseSwitcher').addEventListener('click', () => { $('switcherBackdrop').hidden = true; });
   $('switcherBackdrop').addEventListener('click', e => { if (e.target.id === 'switcherBackdrop') $('switcherBackdrop').hidden = true; });
+  $('btnClosePhotoLightbox').addEventListener('click', () => { $('photoLightbox').hidden = true; });
+  $('photoLightbox').addEventListener('click', e => { if (e.target.id === 'photoLightbox') $('photoLightbox').hidden = true; });
   $('btnSettings').addEventListener('click', () => { showView('settings'); renderSettings(); });
   $('btnGoConnectFitbit').addEventListener('click', () => { showView('settings'); renderSettings(); $('btnFitbitConnect').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
   $('btnDismissFitbitBanner').addEventListener('click', dismissFitbitBanner);

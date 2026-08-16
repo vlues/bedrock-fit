@@ -26,7 +26,7 @@
       <span class="avatar" id="avatarInitial">P</span>
     </button>
     <div class="topbar-title" id="topbarTitle">Bedrock</div>
-    <div style="display:flex; gap:6px;">
+    <div style="display:flex; gap:10px;">
       <button class="iconbtn" id="btnToggleTheme" aria-label="Toggle dark mode"><span class="ms" id="themeIcon">dark_mode</span></button>
       <button class="iconbtn" id="btnSettings" aria-label="Settings"><span class="ms">settings</span></button>
     </div>
@@ -336,6 +336,12 @@
         <button class="btn btn-ghost btn-block" id="btnToggleFocusOverlay" hidden>🎯 Show my focus areas on this photo</button>
       </div>
 
+      <div class="card" id="photoHistoryCard" hidden>
+        <div class="card-head"><h3>Progress photos</h3><span class="badge-optional">📊 from your logs</span></div>
+        <p class="muted-copy">Every check-in photo you've taken — kept right here, not just the latest one. Tap any to view full-size.</p>
+        <div class="photo-history-strip" id="photoHistoryStrip"></div>
+      </div>
+
       <div class="card">
         <h3>Weight trend</h3>
         <canvas id="progressChart" width="320" height="160"></canvas>
@@ -609,6 +615,8 @@
     <canvas id="cameraCanvas" hidden></canvas>
     <div class="camera-flash" id="cameraFlash"></div>
     <button class="camera-torch" id="cameraTorch" aria-label="Toggle flashlight" hidden>🔦</button>
+    <button class="camera-timer-btn" id="cameraTimerBtn" aria-label="Self-timer" hidden>⏱ Off</button>
+    <div class="camera-countdown" id="cameraCountdown" hidden></div>
     <p class="camera-tip" id="cameraTip"></p>
     <div class="camera-controls">
       <button class="camera-btn-ghost" id="cameraCancel">Cancel</button>
@@ -621,6 +629,15 @@
         <button class="btn btn-ghost" id="cameraRetake">↺ Retake</button>
         <button class="btn btn-primary" id="cameraUsePhoto">Use photo ✓</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== PHOTO HISTORY LIGHTBOX ===== -->
+  <div class="sheet-backdrop" id="photoLightbox" hidden>
+    <div class="sheet" style="text-align:center;">
+      <img id="photoLightboxImg" alt="Progress photo" style="width:100%; border-radius:16px; display:block;">
+      <p class="muted-copy" id="photoLightboxCaption" style="margin-top:10px;"></p>
+      <button class="btn btn-ghost btn-block" id="btnClosePhotoLightbox">Close</button>
     </div>
   </div>
 

@@ -26,6 +26,9 @@ const Camera = (() => {
   let lastPose = null; // latest detected keypoints, normalized 0-1
   let torchOn = false;
   let pendingShot = null; // { dataUrl, keypoints } — held during retake/confirm review
+  const TIMER_OPTIONS = [0, 3, 10]; // seconds — 0 = off. Cycled by tapping the timer button.
+  let timerIndex = 0;
+  let countdownId = null;
 
   function supported() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
@@ -133,6 +136,29 @@ const Camera = (() => {
     btn.textContent = torchOn ? '🔦 On' : '🔦';
   }
 
+  // Self-timer — mainly for the body/progress-photo guide, where you need
+  // to prop the phone up and step into frame yourself. Persisted across
+  // sessions (localStorage) so it doesn't reset to "off" every check-in
+  // once you've picked a delay that works for your setup.
+  const TIMER_STORAGE_KEY = 'bedrock_camera_timer_idx';
+  function loadTimerIndex() {
+    const saved = Number(localStorage.getItem(TIMER_STORAGE_KEY));
+    timerIndex = TIMER_OPTIONS.includes(saved) ? TIMER_OPTIONS.indexOf(saved) : 0;
+  }
+  function updateTimerButton() {
+    const btn = document.getElementById('cameraTimerBtn');
+    if (!btn) return;
+    btn.hidden = currentGuide !== 'body';
+    const secs = TIMER_OPTIONS[timerIndex];
+    btn.classList.toggle('camera-timer-on', secs > 0);
+    btn.textContent = secs > 0 ? `⏱ ${secs}s` : '⏱ Off';
+  }
+  function cycleTimer() {
+    timerIndex = (timerIndex + 1) % TIMER_OPTIONS.length;
+    localStorage.setItem(TIMER_STORAGE_KEY, String(TIMER_OPTIONS[timerIndex]));
+    updateTimerButton();
+  }
+
   async function open({ guide = 'food', tip = '', onCapture }) {
     if (!supported()) return { ok: false, error: 'unsupported' };
     onCaptureCb = onCapture;
@@ -140,6 +166,7 @@ const Camera = (() => {
     lastPose = null;
     torchOn = false;
     pendingShot = null;
+    loadTimerIndex();
     const overlay = document.getElementById('cameraOverlay');
     const video = document.getElementById('cameraVideo');
     const guideEl = document.getElementById('cameraGuide');
@@ -158,6 +185,7 @@ const Camera = (() => {
       return { ok: false, error: 'denied' };
     }
     updateTorchButton();
+    updateTimerButton();
     if (guide === 'body') {
       ensurePoseModel().then(det => { if (det) poseLoop(); });
     }
@@ -169,6 +197,7 @@ const Camera = (() => {
     if (overlay) overlay.hidden = true;
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     if (poseLoopId) { clearTimeout(poseLoopId); cancelAnimationFrame(poseLoopId); poseLoopId = null; }
+    cancelCountdown();
     const canvas = document.getElementById('cameraPoseCanvas');
     if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     pendingShot = null;
@@ -184,11 +213,40 @@ const Camera = (() => {
     setTimeout(() => flash.classList.remove('flash-active'), 150);
   }
 
+  // Entry point the shutter button calls. If a self-timer delay is set,
+  // shows a big pulsing countdown first (so you have time to step into
+  // frame) and only takes the actual photo once it hits zero. Tapping the
+  // shutter again mid-countdown cancels it — same "your call" pattern as
+  // the retake/confirm review step below.
+  function capture() {
+    const secs = TIMER_OPTIONS[timerIndex];
+    if (countdownId != null) { cancelCountdown(); return; }
+    if (!secs) { doCapture(); return; }
+    const el = document.getElementById('cameraCountdown');
+    let remaining = secs;
+    el.hidden = false;
+    el.textContent = remaining;
+    countdownId = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        cancelCountdown();
+        doCapture();
+      } else {
+        el.textContent = remaining;
+      }
+    }, 1000);
+  }
+  function cancelCountdown() {
+    if (countdownId != null) { clearInterval(countdownId); countdownId = null; }
+    const el = document.getElementById('cameraCountdown');
+    if (el) el.hidden = true;
+  }
+
   // Capture doesn't hand the photo off immediately — it drops into a
   // review step (Use Photo / Retake) so a blurry or badly-framed shot
   // never gets saved without the user seeing it first. One extra tap,
   // fully the user's call.
-  function capture() {
+  function doCapture() {
     const video = document.getElementById('cameraVideo');
     const canvas = document.getElementById('cameraCanvas');
     if (!video.videoWidth) return; // not ready yet
@@ -243,12 +301,14 @@ const Camera = (() => {
     const cancel = document.getElementById('cameraCancel');
     const switchBtn = document.getElementById('cameraSwitch');
     const torchBtn = document.getElementById('cameraTorch');
+    const timerBtn = document.getElementById('cameraTimerBtn');
     const useBtn = document.getElementById('cameraUsePhoto');
     const retakeBtn = document.getElementById('cameraRetake');
     if (shutter) shutter.addEventListener('click', capture);
     if (cancel) cancel.addEventListener('click', close);
     if (switchBtn) switchBtn.addEventListener('click', switchCamera);
     if (torchBtn) torchBtn.addEventListener('click', toggleTorch);
+    if (timerBtn) timerBtn.addEventListener('click', cycleTimer);
     if (useBtn) useBtn.addEventListener('click', confirmShot);
     if (retakeBtn) retakeBtn.addEventListener('click', retake);
   }
