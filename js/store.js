@@ -60,7 +60,7 @@ const Store = (() => {
     return {
       id: newProfileId(),
       name: '', age: null, sex: 'other',
-      weightLb: null, heightIn: null,
+      weightLb: null, heightIn: null, goalWeightLb: null, restOverrideSec: null,
       goal: 'muscle', exp: 'new', days: 3, equipment: 'full', focusAreas: [], excludedExercises: [],
       limitations: '', unitWeight: 'lb', unitHeight: 'ftin',
       createdAt: Date.now(),
@@ -87,6 +87,8 @@ const Store = (() => {
     p.supplementStack = p.supplementStack || [];
     p.recentProducts = p.recentProducts || [];
     p.sessionOffset = p.sessionOffset || 0;
+    if (!('goalWeightLb' in p)) p.goalWeightLb = null;
+    if (!('restOverrideSec' in p)) p.restOverrideSec = null;
     return p;
   }
   function deleteProfile(id) {

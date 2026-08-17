@@ -306,10 +306,15 @@
       <div class="card">
         <div class="card-head"><h3 data-i18n="At a glance">At a glance</h3><span class="badge-optional">📊 from your logs</span></div>
         <div class="stat-tiles" id="progressStatTiles"></div>
+        <div class="field-row" id="quickWeighRow" hidden style="margin-top:12px;">
+          <label class="field" style="margin-bottom:0;"><span>Today's weight</span><input type="number" id="quickWeighVal" inputmode="decimal"></label>
+          <button class="btn btn-secondary" id="btnQuickWeighSave" style="align-self:flex-end;">Save</button>
+        </div>
+        <button class="btn btn-ghost btn-block" id="btnQuickWeigh" style="margin-top:8px;">⚖️ Quick weigh-in</button>
       </div>
 
       <div class="card" id="weeklyRecapCard" hidden>
-        <div class="card-head"><h3 data-i18n="Your week">Your week</h3><span class="badge-optional">last 7 days</span></div>
+        <div class="card-head"><h3 data-i18n="Your week">Your week</h3><button class="btn btn-ghost" id="btnShareWeek" style="padding:4px 10px; font-size:12px;">📤 Share</button></div>
         <div id="weeklyRecapBody"></div>
       </div>
 
@@ -371,6 +376,12 @@
         <div class="card-head"><h3 data-i18n="Progress photos">Progress photos</h3><span class="badge-optional">📊 from your logs</span></div>
         <p class="muted-copy">Every check-in photo you've taken — kept right here, not just the latest one. Tap any to view full-size.</p>
         <div class="photo-history-strip" id="photoHistoryStrip"></div>
+      </div>
+
+      <div class="card" id="thenNowCard" hidden>
+        <div class="card-head"><h3>Then vs now</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div class="compare-grid" id="thenNowGrid"></div>
+        <p class="muted-copy" id="thenNowCaption" style="margin-top:10px;"></p>
       </div>
 
       <div class="card">
@@ -637,6 +648,19 @@
           <button type="button" class="unit-opt" data-unit="lb">lb</button>
           <button type="button" class="unit-opt" data-unit="kg">kg</button>
         </div>
+        <label class="field" style="margin-top:14px;"><span>🎯 Goal weight <small>(optional — powers "to go" on Progress)</small></span>
+          <input type="number" id="settingsGoalWeight" inputmode="decimal" placeholder="e.g. 170">
+        </label>
+        <label class="field"><span>⏱ Rest timer length</span>
+          <select id="settingsRestOverride">
+            <option value="">Auto — matched to your goal (recommended)</option>
+            <option value="60">1:00</option>
+            <option value="90">1:30</option>
+            <option value="120">2:00</option>
+            <option value="150">2:30</option>
+            <option value="180">3:00</option>
+          </select>
+        </label>
       </div>
 
       <div class="card">
@@ -783,6 +807,17 @@
     </div>
   </div>
 
+  <!-- ===== EXERCISE HISTORY (tap a lift's name mid-session) ===== -->
+  <div class="sheet-backdrop" id="exHistorySheet" hidden>
+    <div class="sheet">
+      <h3 id="exHistoryTitle">Exercise history</h3>
+      <p class="muted-copy" id="exHistoryE1rm" style="margin:0 0 10px;"></p>
+      <canvas id="exHistoryChart" width="320" height="120"></canvas>
+      <div id="exHistoryList" class="scan-history"></div>
+      <button class="btn btn-ghost btn-block" id="btnExHistoryClose" style="margin-top:10px;">Close</button>
+    </div>
+  </div>
+
   <!-- ===== EXERCISE SWAP CHOOSER ===== -->
   <div class="sheet-backdrop" id="swapSheet" hidden>
     <div class="sheet">
@@ -811,6 +846,14 @@
       <h3 id="doneTitle">Session complete</h3>
       <div class="stat-tiles" id="doneStats" style="margin:14px 0;"></div>
       <div id="donePRs"></div>
+      <p class="muted-copy" style="margin:10px 0 6px;">How did it feel?</p>
+      <div class="feel-row" id="feelRow">
+        <button class="feel-btn" data-feel="1">😫</button>
+        <button class="feel-btn" data-feel="2">😕</button>
+        <button class="feel-btn" data-feel="3">🙂</button>
+        <button class="feel-btn" data-feel="4">💪</button>
+        <button class="feel-btn" data-feel="5">🔥</button>
+      </div>
       <div class="ai-result" id="doneDebrief" style="text-align:left;" hidden></div>
       <button class="btn btn-primary btn-block" id="btnDoneClose" style="margin-top:14px;">Nice 💪</button>
     </div>

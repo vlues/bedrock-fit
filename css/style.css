@@ -47,6 +47,9 @@
   --evidence-moderate-bg: oklch(0.58 0.115 42 / 0.15); --evidence-moderate-text: oklch(0.46 0.11 42);
   --evidence-limited-bg: oklch(0.5 0.15 25 / 0.13); --evidence-limited-text: oklch(0.5 0.15 25);
 
+  --gloss:      oklch(1 0 0 / 0.35);
+  --gloss-soft: oklch(1 0 0 / 0.16);
+
   --radius-lg: 26px;
   --radius-md: 20px;
   --radius-sm: 14px;
@@ -86,9 +89,13 @@
     --evidence-strong-bg: oklch(0.68 0.09 140 / 0.18); --evidence-strong-text: oklch(0.82 0.09 140);
     --evidence-moderate-bg: oklch(0.7 0.12 48 / 0.18); --evidence-moderate-text: oklch(0.85 0.1 54);
     --evidence-limited-bg: oklch(0.68 0.16 25 / 0.18); --evidence-limited-text: oklch(0.78 0.14 25);
+    --gloss:      oklch(1 0 0 / 0.10);
+    --gloss-soft: oklch(1 0 0 / 0.05);
   }
 }
 :root[data-theme="dark"]{
+  --gloss:      oklch(1 0 0 / 0.10);
+  --gloss-soft: oklch(1 0 0 / 0.05);
   --bg:            oklch(0.185 0.016 56);
   --text:          oklch(0.94 0.012 82);
   --card:          oklch(1 0 0 / 0.07);
@@ -252,8 +259,8 @@ a{ color: var(--accent-text); }
    manual margin-top sprinkled inconsistently on some but not others. One
    rule, applies everywhere. */
 .btn-block + .btn-block{ margin-top: 12px; }
-.btn-primary{ background: var(--clay-grad); color: #fff; box-shadow: 0 10px 26px var(--clay-grad-shadow); }
-.btn-secondary{ background: var(--pill-olive); color: var(--olive-text); }
+.btn-primary{ background: var(--clay-grad); color: #fff; box-shadow: inset 0 1px 0 var(--gloss), 0 10px 26px var(--clay-grad-shadow); }
+.btn-secondary{ background: var(--pill-olive); color: var(--olive-text); box-shadow: inset 0 1px 0 var(--gloss-soft); }
 .btn-ghost{ background: transparent; color: var(--muted-text); padding-left:6px; box-shadow:none; }
 .btn.danger{ color: var(--danger); }
 .btn-row{ display:flex; gap:12px; margin-top:6px; }
@@ -261,11 +268,19 @@ a{ color: var(--accent-text); }
 
 /* ---------- cards ---------- */
 .card{
+  position: relative;
   background: var(--card); border-radius: var(--radius-lg);
   border: 1px solid var(--card-border);
-  backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
   padding: 18px; margin-bottom: 14px; box-shadow: var(--card-shadow);
   animation: rise .6s var(--ease) both;
+}
+/* glossy top light: a soft vertical highlight fading out a quarter of the
+   way down — the "curved glass catching the ceiling light" look. Paints
+   under content (::before), never intercepts taps. */
+.card::before{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background: linear-gradient(180deg, var(--gloss-soft), transparent 26%);
 }
 .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; }
 .pill{ background: var(--week-bg); color: var(--muted-text); font-size:12px; font-weight:600; padding:5px 12px; border-radius:999px; }
@@ -380,6 +395,8 @@ a{ color: var(--accent-text); }
 .chip-row{ display:flex; gap:8px; overflow-x:auto; margin-bottom:16px; padding-bottom:4px; }
 .chip{
   flex-shrink:0; border:1px solid var(--card-border); background: var(--card); border-radius:999px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 var(--gloss-soft);
   padding:8px 16px; font-size:13px; font-weight:600; color: var(--muted-text); cursor:pointer;
   transition: all .15s var(--ease);
 }
@@ -857,10 +874,13 @@ a{ color: var(--accent-text); }
 /* ---------- hero checklist pills (was its own card) ---------- */
 .hero-checklist{ position:relative; display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
 .hero-check{
-  font-size:11.5px; font-weight:600; color: var(--muted-text);
+  font-size:11.5px; font-weight:600; color: var(--muted-text); font-family:inherit;
   background: var(--week-bg); border:1px solid var(--card-border);
-  border-radius:999px; padding:5px 11px;
+  border-radius:999px; padding:5px 11px; cursor:pointer;
+  box-shadow: inset 0 1px 0 var(--gloss-soft);
+  transition: transform .25s var(--ease-bounce);
 }
+.hero-check:active{ transform: scale(0.92); }
 .hero-check.done{ background: var(--pill-olive); color: var(--olive-text); border-color:transparent; }
 
 /* ---------- schedule: last-session line ---------- */
@@ -928,6 +948,26 @@ a{ color: var(--accent-text); }
 .delta-up{ color: var(--olive-text); font-weight:700; font-size:11px; }
 .delta-down{ color: var(--danger); font-weight:700; font-size:11px; }
 .delta-flat{ color: var(--muted-text); font-weight:700; font-size:11px; }
+
+/* ---------- then vs now / feel rating / quick weigh ---------- */
+.compare-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.compare-pane{ position:relative; border-radius: var(--radius-sm); overflow:hidden; }
+.compare-pane img{ width:100%; display:block; aspect-ratio:3/4; object-fit:cover; }
+.compare-label{
+  position:absolute; left:0; right:0; bottom:0; padding:18px 8px 7px;
+  background: linear-gradient(to top, oklch(0.13 0.015 56 / 0.8), transparent);
+  color: oklch(0.96 0.012 78); font-size:11px; text-align:center;
+}
+.compare-label b{ display:block; font-size:12.5px; }
+.feel-row{ display:flex; justify-content:center; gap:10px; }
+.feel-btn{
+  width:46px; height:46px; border-radius:50%; font-size:22px; cursor:pointer;
+  border:1.5px solid var(--card-border); background: var(--week-bg);
+  transition: transform .25s var(--ease-bounce), background .2s var(--ease);
+  filter: grayscale(0.5);
+}
+.feel-btn:active{ transform: scale(0.85); }
+.feel-btn.picked{ background: var(--choice-on); border-color: var(--choice-on-border); filter:none; transform: scale(1.12); }
 
 /* ---------- micro-animations ---------- */
 /* Staggered card entrance: each card in a page rises a beat after the one
