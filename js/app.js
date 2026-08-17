@@ -1123,6 +1123,138 @@ function tourNext() {
 }
 
 /* ---------------------------------------------------------------- */
+/* Share card — a 1080×1350 (4:5, feed-perfect) image drawn on canvas  */
+/* from real logged numbers, in Bedrock's own clay/olive glass look.   */
+/* Native share sheet where available; save/copy fallbacks elsewhere.  */
+/* Every figure is from the logs — a share card that lies would be an  */
+/* ad, not a flex.                                                     */
+/* ---------------------------------------------------------------- */
+const APP_LINK = 'vlues.github.io/bedrock-fit';
+let SHARE_CARD_BLOB = null;
+
+function rr(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); return; }
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+function buildShareCardCanvas() {
+  const W = 1080, H = 1350;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const serif = '"Instrument Serif", Georgia, serif';
+  const sans = '"Instrument Sans", -apple-system, sans-serif';
+
+  // warm dark glass backdrop + ambient glows
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#2b2119'); bg.addColorStop(1, '#191410');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const glow = (x, y, r, c) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, c); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  };
+  glow(W * 0.85, H * 0.1, 500, 'rgba(197,122,80,0.28)');
+  glow(W * 0.1, H * 0.9, 520, 'rgba(122,138,84,0.22)');
+
+  // header
+  ctx.fillStyle = 'rgba(244,237,224,0.55)';
+  ctx.font = `600 34px ${sans}`;
+  ctx.letterSpacing = '10px';
+  ctx.fillText('B E D R O C K', 64, 110);
+  ctx.letterSpacing = '0px';
+  ctx.fillStyle = '#f4ede0';
+  ctx.font = `400 92px ${serif}`;
+  const who = (ACTIVE.name || 'My').split(' ')[0];
+  ctx.fillText(`${who}${/s$/i.test(who) ? '’' : '’s'} training week`, 64, 226);
+  ctx.fillStyle = 'rgba(244,237,224,0.55)';
+  ctx.font = `500 34px ${sans}`;
+  ctx.fillText(new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }), 64, 284);
+
+  // gather the facts
+  const now = Date.now(), week = 7 * 24 * 3600 * 1000;
+  const workouts = ACTIVE.history.workouts || [];
+  const thisWeek = workouts.filter(w => w.date > now - week);
+  const vol = thisWeek.reduce((a, w) => a + sessionVolume(w), 0);
+  const streak = Insights.workoutStreak(ACTIVE);
+  const prs = Object.values(Insights.exercisePRs(ACTIVE)).sort((a, b) => b.weight - a.weight);
+  const prWeek = prs.filter(p => p.date > now - week).length;
+  const checkins = (ACTIVE.history.checkins || []).filter(c => c.weight != null).sort((a, b) => a.date - b.date);
+  const wDelta = checkins.length >= 2 ? Math.round((checkins[checkins.length - 1].weight - checkins[0].weight) * 10) / 10 : null;
+  const stats = [
+    { big: `${thisWeek.length}`, label: `session${thisWeek.length === 1 ? '' : 's'} this week`, sub: `${Number(ACTIVE.days) || 3} planned` },
+    { big: `${Math.round(vol).toLocaleString()}`, label: 'lb·reps lifted', sub: 'total volume, 7 days' },
+    { big: streak ? `${streak}🔥` : '—', label: `week streak${streak === 1 ? '' : 's'}`, sub: streak >= 2 ? 'still alive' : 'building' },
+    prs[0]
+      ? { big: `${prs[0].weight}`, label: `lb — ${prs[0].name.length > 18 ? prs[0].name.slice(0, 17) + '…' : prs[0].name}`, sub: prWeek ? `${prWeek} new PR${prWeek === 1 ? '' : 's'} this week 🏆` : 'all-time best' }
+      : { big: '—', label: 'best lift', sub: 'loading…' },
+  ];
+  if (wDelta != null) stats.push({ big: `${wDelta > 0 ? '+' : ''}${wDelta}`, label: 'lb since day one', sub: ACTIVE.goal === 'fatloss' ? (wDelta < 0 ? 'cutting, on plan' : 'trend to watch') : (wDelta >= 0 ? 'building' : 'leaning out') });
+  stats.push({ big: `${(ACTIVE.history.meals || []).length}`, label: 'meals logged ever', sub: 'tracked, not guessed' });
+
+  // 2×3 glass tiles
+  const gx = 64, gy = 360, gw = (W - gx * 2 - 28) / 2, gh = 258, gap = 28;
+  stats.slice(0, 6).forEach((s, i) => {
+    const x = gx + (i % 2) * (gw + gap), y = gy + Math.floor(i / 2) * (gh + gap);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    rr(ctx, x, y, gw, gh, 34); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 2;
+    rr(ctx, x, y, gw, gh, 34); ctx.stroke();
+    const gloss = ctx.createLinearGradient(0, y, 0, y + gh * 0.4);
+    gloss.addColorStop(0, 'rgba(255,255,255,0.10)'); gloss.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gloss; rr(ctx, x, y, gw, gh, 34); ctx.fill();
+    ctx.fillStyle = '#f4ede0';
+    ctx.font = `400 86px ${serif}`;
+    ctx.fillText(s.big, x + 34, y + 118);
+    ctx.fillStyle = 'rgba(244,237,224,0.85)';
+    ctx.font = `600 30px ${sans}`;
+    ctx.fillText(s.label, x + 34, y + 172);
+    ctx.fillStyle = 'rgba(230,168,120,0.9)';
+    ctx.font = `500 27px ${sans}`;
+    ctx.fillText(s.sub, x + 34, y + 214);
+  });
+
+  // footer: receipts line + link pill
+  ctx.fillStyle = 'rgba(244,237,224,0.6)';
+  ctx.font = `500 30px ${sans}`;
+  ctx.fillText('📊 Every number from real logged workouts & meals', 64, H - 130);
+  const pillW = 520, pillH = 74, px = 64, py = H - 104;
+  ctx.fillStyle = 'rgba(197,122,80,0.92)';
+  rr(ctx, px, py, pillW, pillH, 37); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = `700 32px ${sans}`;
+  ctx.fillText(APP_LINK, px + 36, py + 48);
+  return canvas;
+}
+
+async function openShareCard() {
+  const canvas = buildShareCardCanvas();
+  $('shareCardPreview').src = canvas.toDataURL('image/png');
+  SHARE_CARD_BLOB = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  const file = SHARE_CARD_BLOB ? new File([SHARE_CARD_BLOB], 'bedrock-week.png', { type: 'image/png' }) : null;
+  const canShareFile = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+  $('shareCardHint').textContent = canShareFile
+    ? 'Opens your share sheet — post it anywhere.'
+    : 'Long-press (or right-click) the card to save it, then post it anywhere.';
+  $('shareCardSheet').hidden = false;
+}
+
+async function postShareCard() {
+  const file = SHARE_CARD_BLOB ? new File([SHARE_CARD_BLOB], 'bedrock-week.png', { type: 'image/png' }) : null;
+  if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], text: `My training week — ${APP_LINK}` }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; /* fall through */ }
+  }
+  // no file-share support: open full-size for save-as + put the link on the clipboard
+  if (SHARE_CARD_BLOB) window.open(URL.createObjectURL(SHARE_CARD_BLOB), '_blank');
+  try { await navigator.clipboard.writeText(`My training week — ${APP_LINK}`); showToast('Card opened — save it. Link copied for the caption.'); }
+  catch (e) { showToast('Card opened in a new tab — save it from there.'); }
+}
+
+/* ---------------------------------------------------------------- */
 /* Daily Brief — the app opens the conversation. First launch of each  */
 /* day, a glass sheet lays the whole day out: training + why, recovery */
 /* conditions, food targets, one focus. Rule-based sections render     */
@@ -2922,12 +3054,10 @@ function init() {
     showToast('⚖️ Logged — the trend line just got smarter.');
   });
   $('quickWeighVal').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnQuickWeighSave').click(); });
-  $('btnShareWeek').addEventListener('click', async e => {
-    e.stopPropagation();
-    const text = 'My week on Bedrock 🏋️\n' + $('weeklyRecapBody').textContent.trim().replace(/\s{2,}/g, ' · ').slice(0, 280);
-    if (navigator.share) { try { await navigator.share({ text }); } catch (err) { /* user cancelled */ } }
-    else { try { await navigator.clipboard.writeText(text); showToast('Copied — paste it anywhere.'); } catch (err) { showToast('Couldn\'t copy on this browser.'); } }
-  });
+  $('btnShareWeek').addEventListener('click', e => { e.stopPropagation(); openShareCard(); });
+  $('btnShareCardClose').addEventListener('click', () => { $('shareCardSheet').hidden = true; });
+  $('shareCardSheet').addEventListener('click', e => { if (e.target.id === 'shareCardSheet') $('shareCardSheet').hidden = true; });
+  $('btnShareCardPost').addEventListener('click', postShareCard);
   $('btnExHistoryClose').addEventListener('click', () => { $('exHistorySheet').hidden = true; });
   $('exHistorySheet').addEventListener('click', e => { if (e.target.id === 'exHistorySheet') $('exHistorySheet').hidden = true; });
   $('btnTakePhoto').addEventListener('click', openBodyScanCamera);

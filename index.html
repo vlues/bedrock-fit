@@ -807,6 +807,19 @@
     </div>
   </div>
 
+  <!-- ===== SHARE CARD (canvas-rendered, posts anywhere) ===== -->
+  <div class="sheet-backdrop" id="shareCardSheet" hidden>
+    <div class="sheet" style="text-align:center;">
+      <h3 style="margin-bottom:12px;">Your share card</h3>
+      <img id="shareCardPreview" alt="Share card preview" style="width:100%; border-radius:16px; display:block; box-shadow: 0 12px 34px oklch(0 0 0 / 0.35);">
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn btn-ghost" id="btnShareCardClose">Close</button>
+        <button class="btn btn-primary" id="btnShareCardPost">Share it 📤</button>
+      </div>
+      <p class="muted-copy" id="shareCardHint" style="margin-top:10px;"></p>
+    </div>
+  </div>
+
   <!-- ===== EXERCISE HISTORY (tap a lift's name mid-session) ===== -->
   <div class="sheet-backdrop" id="exHistorySheet" hidden>
     <div class="sheet">
