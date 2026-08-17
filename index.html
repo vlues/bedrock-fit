@@ -286,7 +286,10 @@
       <button class="btn btn-primary btn-block" id="btnFinishWorkout" data-i18n="Finish & save">Finish &amp; save</button>
     </div>
     <div class="rest-timer-bar" id="restTimerBar" hidden>
-      <span id="restTimerLabel">Rest — 1:30</span>
+      <div class="rest-timer-main">
+        <span id="restTimerLabel">Rest — 1:30</span>
+        <div class="rest-timer-track"><div class="rest-timer-fill" id="restTimerFill"></div></div>
+      </div>
       <div class="rest-timer-actions">
         <button class="rest-timer-btn" id="btnRestAdd30">+30s</button>
         <button class="rest-timer-btn" id="btnRestSkip">Skip</button>
@@ -745,6 +748,20 @@
         <button class="btn btn-ghost" id="btnTourSkip">Skip</button>
         <button class="btn btn-primary" id="btnTourNext">Next</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== DAILY BRIEF (auto-appears once per day) ===== -->
+  <div class="sheet-backdrop" id="briefSheet" hidden>
+    <div class="sheet">
+      <div class="brief-head">
+        <span class="brief-sun" id="briefSun">☀️</span>
+        <h3 id="briefGreeting">Good morning</h3>
+        <p class="muted-copy" id="briefDate" style="margin:2px 0 0;"></p>
+      </div>
+      <div class="ai-result" id="briefAiLine" hidden style="margin:12px 0 0;"></div>
+      <div id="briefSections"></div>
+      <button class="btn btn-primary btn-block" id="btnBriefClose" style="margin-top:14px;">Let's get it 💪</button>
     </div>
   </div>
 

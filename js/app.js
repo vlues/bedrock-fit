@@ -404,6 +404,9 @@ function renderTodayChecklist() {
     pill(trained, '🏋️', trained ? 'trained' : 'train') +
     pill(meals > 0, '🍽', meals > 0 ? `${meals} meal${meals === 1 ? '' : 's'}` : 'log food') +
     pill(waterPct >= 100, '💧', waterPct >= 100 ? 'hydrated' : `${Math.min(waterPct, 99)}% water`);
+  // The play button breathes until today's session is banked — a quiet
+  // heartbeat that says "I'm ready when you are," gone once you've trained.
+  $('navFab').classList.toggle('attention', !trained);
 }
 
 // Last 7 days vs the 7 before — momentum, not just totals. Pure math from
@@ -893,13 +896,16 @@ function renderSetRows(exIdx) {
 /* ---------------------------------------------------------------- */
 let restTimerInterval = null;
 let restTimerRemaining = 0;
+let restTimerTotal = 0;
 
 function startRestTimer(seconds) {
   clearInterval(restTimerInterval);
   restTimerRemaining = seconds;
+  restTimerTotal = seconds;
   const bar = $('restTimerBar');
   if (!bar) return;
   bar.hidden = false;
+  bar.classList.remove('urgent');
   renderRestTimer();
   restTimerInterval = setInterval(() => {
     restTimerRemaining--;
@@ -918,6 +924,12 @@ function renderRestTimer() {
     const m = Math.floor(restTimerRemaining / 60), s = restTimerRemaining % 60;
     label.textContent = `Rest — ${m}:${String(s).padStart(2, '0')}`;
   }
+  // Draining bar + urgency pulse in the last 5s: rest becomes something you
+  // can see emptying, not just a number to squint at.
+  const fill = $('restTimerFill');
+  if (fill && restTimerTotal > 0) fill.style.width = Math.max(0, Math.round(restTimerRemaining / restTimerTotal * 100)) + '%';
+  const bar = $('restTimerBar');
+  if (bar) bar.classList.toggle('urgent', restTimerRemaining <= 5);
 }
 function skipRestTimer() {
   clearInterval(restTimerInterval);
@@ -941,6 +953,7 @@ const TOUR_STEPS = [
   { target: '.navbtn[data-nav="progress"]', icon: '📈', title: 'Progress', copy: 'Photos, weight, and charts that build themselves from what you log. Come here to feel smug about the trend line.' },
   { target: '.navbtn[data-nav="supplements"]', icon: '🍎', title: 'Fuel', copy: 'Food and water. Snap your plate or scan a barcode — Bedrock counts calories and macros, you just check its work.' },
   { target: '.navbtn[data-nav="chat"]', icon: '💬', title: 'Ask', copy: 'A coach that can actually see your numbers. "¿Qué como ahora?" works too — it reads your real data before answering.' },
+  { target: '#insightCard', icon: '☀️', title: 'Your daily brief', copy: 'First open each day, Bedrock briefs you automatically: what to train, how recovered you are, what to eat, one focus. Tap this card any time to reread it.' },
   { target: '#btnSwitchProfile', icon: '👥', title: 'Two people, one app', copy: 'This avatar switches profiles — add your partner and you each get your own plan and logs. That\'s the tour. Go lift 💪' }
 ];
 let TOUR_STEP = 0;
@@ -998,11 +1011,76 @@ function endTour() {
   $('tourOverlay').hidden = true;
   localStorage.setItem(TOUR_DONE_KEY, '1');
   window.removeEventListener('resize', positionTourStep);
+  maybeShowDailyBrief(); // the brief takes the baton right after the tour
 }
 function tourNext() {
   if (TOUR_STEP >= TOUR_STEPS.length - 1) { endTour(); return; }
   TOUR_STEP++;
   renderTourStep();
+}
+
+/* ---------------------------------------------------------------- */
+/* Daily Brief — the app opens the conversation. First launch of each  */
+/* day, a glass sheet lays the whole day out: training + why, recovery */
+/* conditions, food targets, one focus. Rule-based sections render     */
+/* instantly from real data; a short Claude read tops it when signed   */
+/* in. Reopen any time by tapping the insight card. Zero buttons to    */
+/* trigger it — the trainer shows up on its own.                       */
+/* ---------------------------------------------------------------- */
+function briefShownKey() { return `bedrock_brief_shown_${ACTIVE.id}_${new Date().toDateString()}`; }
+
+function maybeShowDailyBrief() {
+  if (!ACTIVE) return;
+  if (!localStorage.getItem(TOUR_DONE_KEY)) return; // never stack on the tour
+  if (localStorage.getItem(briefShownKey())) return;
+  if (!(ACTIVE.history.workouts || []).length && !(ACTIVE.history.meals || []).length) return; // brand-new profile: let the tour land first
+  openDailyBrief();
+}
+
+async function openDailyBrief() {
+  const hour = new Date().getHours();
+  $('briefGreeting').textContent = `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}, ${ACTIVE.name || 'athlete'}`;
+  $('briefSun').textContent = hour < 12 ? '☀️' : hour < 18 ? '🌤' : '🌙';
+  $('briefDate').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+  const stalled = Insights.stalledExercises(ACTIVE);
+  const session = Workout.todaysSession(ACTIVE, stalled);
+  const days = Number(ACTIVE.days) || 3;
+  const todayWd = (new Date().getDay() + 6) % 7;
+  const isTrainingDay = suggestedTrainingWeekdays(days).includes(todayWd);
+  const rec = muscleRecoveryHours();
+  const target = Nutrition.dailyTarget(ACTIVE);
+  const totals = Nutrition.todayTotals(ACTIVE);
+  const focus = Insights.volumeLandmarkNote(ACTIVE);
+
+  const sec = (icon, title, body) => `<div class="brief-section"><span class="brief-icon">${icon}</span><div><b>${title}</b><p>${body}</p></div></div>`;
+  const sessionMuscles = [...new Set(session.exercises.map(ex => (Workout.EX.find(e => e.id === ex.id) || {}).muscle).filter(Boolean))];
+  const readyMuscles = sessionMuscles.filter(m => rec[m] == null || rec[m] >= 48);
+  $('briefSections').innerHTML =
+    sec('🏋️', isTrainingDay ? `Train: ${session.label}` : 'Rest day (training optional)',
+      isTrainingDay
+        ? `${session.exercises.length} exercises, ${session.exercises[0].sets} sets each. ${readyMuscles.length === sessionMuscles.length ? 'All target muscles are recovered and ready.' : 'Some muscles are still rebuilding — expect slightly heavier-feeling weights.'}`
+        : 'Muscle is built on the days between sessions. If you\'d rather train, tap play — the plan adapts.') +
+    (target ? sec('🍎', `Eat: ~${target.calories.toLocaleString()} kcal · ${target.proteinG}g protein`,
+      totals.calories > 0 ? `${totals.calories} kcal already logged — ${Math.max(0, target.calories - totals.calories).toLocaleString()} to go.` : `Protein first: it protects muscle and kills cravings. Water target: ${(Nutrition.waterTargetMl(ACTIVE) / 1000).toFixed(1)} L.`) : '') +
+    (focus ? sec('🎯', 'One focus', focus.replace(/ Rough, aggregated bands.*$/, '')) :
+      sec('🎯', 'One focus', 'Consistency beats intensity — banking today is the whole job.'));
+
+  $('briefSheet').hidden = false;
+  localStorage.setItem(briefShownKey(), '1');
+
+  // Claude tops the brief with a 2-line personal read (cached per day)
+  const aiOut = $('briefAiLine');
+  const cacheKey = `bedrock_brief_ai_${ACTIVE.id}_${new Date().toDateString()}`;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) { aiOut.textContent = cached; aiOut.hidden = false; return; }
+  if (!Sync.isLoggedIn()) { aiOut.hidden = true; return; }
+  aiOut.hidden = false;
+  aiOut.textContent = 'Reading your data…';
+  const sys = BEDROCK_PERSONA + ' Write a 2-sentence morning brief for this person: sentence 1 = the single most important thing in their data right now (a real number), sentence 2 = today\'s one move. No greeting, no preamble.';
+  const res = await BedrockAPI.chat([{ role: 'user', content: Insights.summaryText(ACTIVE) }], sys, 120);
+  if (res.ok) { aiOut.textContent = res.text; localStorage.setItem(cacheKey, res.text); }
+  else aiOut.hidden = true;
 }
 
 /* ---------------------------------------------------------------- */
@@ -2714,6 +2792,11 @@ function init() {
   $('btnUploadFood').addEventListener('click', () => $('foodPhotoInput').click());
   $('foodPhotoInput').addEventListener('change', e => { if (e.target.files[0]) scanFoodPhoto(e.target.files[0]); e.target.value = ''; });
   $('btnEstimateText').addEventListener('click', estimateTextClick);
+  $('mealQuickText').addEventListener('keydown', e => { if (e.key === 'Enter') estimateTextClick(); });
+  $('btnBriefClose').addEventListener('click', () => { $('briefSheet').hidden = true; });
+  $('briefSheet').addEventListener('click', e => { if (e.target.id === 'briefSheet') $('briefSheet').hidden = true; });
+  $('insightCard').addEventListener('click', openDailyBrief);
+  $('insightCard').style.cursor = 'pointer';
   $('btnScanAddItem').addEventListener('click', scanReviewAddItem);
   $('btnScanCancel').addEventListener('click', closeScanReview);
   $('btnScanLog').addEventListener('click', scanReviewLog);
@@ -2794,6 +2877,7 @@ function init() {
     showView('dashboard');
     renderDashboard();
     if (!localStorage.getItem(TOUR_DONE_KEY)) startTour();
+    else maybeShowDailyBrief();
   } else {
     initOnboarding();
     showView('onboarding');
