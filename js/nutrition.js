@@ -111,6 +111,16 @@ const Nutrition = (() => {
     profile.history.meals = (profile.history.meals || []).filter(m => m.id !== mealId);
     Store.upsertProfile(profile);
   }
+  function updateMeal(profile, mealId, fields) {
+    const meal = (profile.history.meals || []).find(m => m.id === mealId);
+    if (!meal) return null;
+    if (fields.name != null) meal.name = String(fields.name).slice(0, 60) || meal.name;
+    ['calories', 'proteinG', 'carbG', 'fatG'].forEach(f => {
+      if (fields[f] != null && fields[f] !== '') meal[f] = Math.max(0, Math.round(Number(fields[f]) || 0));
+    });
+    Store.upsertProfile(profile);
+    return meal;
+  }
   function todayMeals(profile) {
     return profile.history.meals.filter(m => isToday(m.date));
   }
@@ -133,7 +143,7 @@ const Nutrition = (() => {
   // list of foods with per-item numbers, so the UI can show a review sheet
   // where each item is editable/removable before anything is logged —
   // instead of one opaque total the user has to take or leave.
-  const ITEMIZE_SYS = 'You itemize food for casual calorie tracking. Estimates are rough, never precise, and the note must say so honestly. Respond with ONLY a JSON object, no markdown fences, no prose, exactly this shape: {"items":[{"name":"short food name","portion":"rough portion e.g. 1 cup","calories":320,"proteinG":12,"carbG":30,"fatG":14}],"note":"one short honest caveat about accuracy"} — one entry per distinct food you can identify, whole numbers only.';
+  const ITEMIZE_SYS = 'You itemize food for casual calorie tracking. Estimates are rough, never precise, and the note must say so honestly. The user may describe food in Spanish or English (they live in Spain) — understand both, including Spanish and regional dishes (tortilla española, gazpacho, fabada, pan con tomate, jamón ibérico, etc.) and Spanish brand/portion conventions, and keep each item\'s name in the language the user used. Respond with ONLY a JSON object, no markdown fences, no prose, exactly this shape: {"items":[{"name":"short food name","portion":"rough portion e.g. 1 cup","calories":320,"proteinG":12,"carbG":30,"fatG":14}],"note":"one short honest caveat about accuracy"} — one entry per distinct food you can identify, whole numbers only.';
 
   function parseItemized(text, fallbackName) {
     try {
@@ -228,7 +238,7 @@ const Nutrition = (() => {
   }
 
   return {
-    bmr, dailyTarget, waterTargetMl, logWater, todayWaterMl, addMeal, removeMeal, todayMeals, todayTotals,
+    bmr, dailyTarget, waterTargetMl, logWater, todayWaterMl, addMeal, removeMeal, updateMeal, todayMeals, todayTotals,
     undoLastWaterToday, estimateFoodPhoto, estimateFromText, frequentMeals, remainingToday, recentMealSummary, suggestMeal
   };
 })();

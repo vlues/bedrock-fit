@@ -1250,23 +1250,93 @@ async function comparePhotosClick() {
 /* ---------------------------------------------------------------- */
 /* Supplements                                                        */
 /* ---------------------------------------------------------------- */
+// Maps the profile's training goal onto supplement goal tags so "good for
+// your goal" is computed, not hand-waved. fatloss→fatloss, muscle→muscle,
+// strength→muscle+performance, general→health.
+function goalTagsFor(profileGoal) {
+  return {
+    muscle: ['muscle'], fatloss: ['fatloss'],
+    strength: ['muscle', 'performance'], general: ['health']
+  }[profileGoal] || ['health'];
+}
+
+function toggleStack(suppId) {
+  ACTIVE.supplementStack = ACTIVE.supplementStack || [];
+  const idx = ACTIVE.supplementStack.indexOf(suppId);
+  if (idx === -1) ACTIVE.supplementStack.push(suppId); else ACTIVE.supplementStack.splice(idx, 1);
+  saveActive();
+  renderMyStack();
+  renderSupplements(qs('#supplementFilter .chip.active')?.dataset.filter || 'all');
+}
+
+// The user's own checklist, pinned above the reference list: name + the one
+// number that matters daily (dose), so "did I take it?" needs zero scrolling.
+function renderMyStack() {
+  const card = $('myStackCard');
+  const stack = (ACTIVE.supplementStack || []).map(id => SupplementList.find(s => s.id === id)).filter(Boolean);
+  card.hidden = !stack.length;
+  if (!stack.length) return;
+  // Short dose line: first clause only (split on sentence/semicolon
+  // boundaries, not bare "." — doses like "1.6-2.2 g" contain decimals),
+  // parentheticals dropped.
+  const shortDose = d => d.split(';')[0].split(/\.\s/)[0].replace(/\s*\([^)]*\)/g, '').trim();
+  $('myStackList').innerHTML = stack.map(s =>
+    `<div class="scan-history-row"><span>${s.name}</span><span class="meal-row-right">${shortDose(s.dose)}<button class="meal-remove" data-unstack="${s.id}" aria-label="Remove ${s.name} from stack">✕</button></span></div>`
+  ).join('');
+  $('myStackList').querySelectorAll('[data-unstack]').forEach(btn =>
+    btn.addEventListener('click', () => toggleStack(btn.dataset.unstack)));
+}
+
 function renderSupplements(filter = 'all') {
   const wrap = $('supplementList');
   wrap.innerHTML = '';
-  const list = SupplementList.filter(s => filter === 'all' || s.goals.includes(filter));
+  renderMyStack();
+  const myGoalTags = goalTagsFor(ACTIVE.goal);
+  const evRank = { strong: 0, moderate: 1, limited: 2 };
+  // Sorted for THIS user: goal-relevant first, then by evidence strength —
+  // the strongest option for your actual goal is always the first card.
+  const list = SupplementList
+    .filter(s => filter === 'all' || s.goals.includes(filter))
+    .slice()
+    .sort((a, b) => {
+      const aFit = a.goals.some(g => myGoalTags.includes(g)) ? 0 : 1;
+      const bFit = b.goals.some(g => myGoalTags.includes(g)) ? 0 : 1;
+      return (aFit - bFit) || (evRank[a.evidence] - evRank[b.evidence]);
+    });
   list.forEach(s => {
     const card = document.createElement('div');
     card.className = 'supplement-card';
     const evClass = 'evidence-' + s.evidence;
     const evLabel = { strong: 'Strong evidence', moderate: 'Moderate evidence', limited: 'Limited evidence' }[s.evidence];
+    const forYou = s.goals.some(g => myGoalTags.includes(g));
+    const inStack = (ACTIVE.supplementStack || []).includes(s.id);
     card.innerHTML = `
-      <span class="evidence-tag ${evClass}">${evLabel}</span>
-      <h4>${s.name}</h4>
-      <p class="supp-detail">${s.what}</p>
-      <p class="supp-detail"><b>Typical dose:</b> ${s.dose}</p>
-      <p class="supp-detail"><b>Timing:</b> ${s.timing}</p>
-      <p class="supp-detail"><b>Caution:</b> ${s.caution}</p>
-    `;
+      <button class="supp-head" aria-expanded="false">
+        <div class="supp-head-main">
+          <h4>${s.name}</h4>
+          <div class="supp-tags">
+            <span class="evidence-tag ${evClass}">${evLabel}</span>
+            ${forYou ? '<span class="evidence-tag supp-goal-tag">fits your goal</span>' : ''}
+          </div>
+        </div>
+        <span class="ms supp-caret">expand_more</span>
+      </button>
+      <p class="supp-detail supp-what">${s.what}</p>
+      <div class="supp-body" hidden>
+        <p class="supp-detail"><b>Typical dose:</b> ${s.dose}</p>
+        <p class="supp-detail"><b>Timing:</b> ${s.timing}</p>
+        <p class="supp-detail"><b>Caution:</b> ${s.caution}</p>
+        <button class="btn ${inStack ? 'btn-ghost' : 'btn-secondary'} btn-block supp-stack-btn">${inStack ? '✓ In my stack — remove' : '+ Add to my stack'}</button>
+      </div>`;
+    const head = card.querySelector('.supp-head');
+    head.addEventListener('click', () => {
+      const body = card.querySelector('.supp-body');
+      const opening = body.hidden;
+      body.hidden = !opening;
+      head.setAttribute('aria-expanded', String(opening));
+      card.classList.toggle('open', opening);
+    });
+    card.querySelector('.supp-stack-btn').addEventListener('click', () => toggleStack(s.id));
     wrap.appendChild(card);
   });
 }
@@ -1347,7 +1417,8 @@ function renderNutrition() {
     const macros = (m.carbG != null || m.fatG != null)
       ? `${m.calories} kcal · ${m.proteinG}P/${m.carbG ?? 0}C/${m.fatG ?? 0}F`
       : `${m.calories} kcal · ${m.proteinG}g protein`;
-    row.innerHTML = `<span>${m.name}${m.aiEstimated ? ' 🤖' : ''}</span><span class="meal-row-right">${macros}<button class="meal-remove" aria-label="Remove ${m.name}">✕</button></span>`;
+    row.innerHTML = `<button class="meal-edit-target" aria-label="Edit ${m.name}"><span>${m.name}${m.aiEstimated ? ' 🤖' : ''}</span></button><span class="meal-row-right">${macros}<button class="meal-remove" aria-label="Remove ${m.name}">✕</button></span>`;
+    row.querySelector('.meal-edit-target').addEventListener('click', () => openMealEditor(m));
     row.querySelector('.meal-remove').addEventListener('click', () => {
       Nutrition.removeMeal(ACTIVE, m.id);
       Sync.pushDebounced(ACTIVE);
@@ -1373,10 +1444,14 @@ function renderNutrition() {
    Nothing is logged until the user has seen every item, fixed what's wrong,
    removed what isn't theirs, and added what the model missed. --- */
 let SCAN_REVIEW = null; // { items: [...], note }
+let SCAN_EDIT_ID = null; // meal id when the review sheet is editing an existing log entry
 
-function openScanReview(items, note) {
+function openScanReview(items, note, editId = null) {
   SCAN_REVIEW = { items, note };
+  SCAN_EDIT_ID = editId;
   $('scanReviewNote').textContent = (note ? note + ' ' : '') + 'Edit anything, remove what’s wrong, add what’s missing.';
+  $('btnScanLog').textContent = editId ? 'Save changes' : 'Log meal';
+  $('btnScanAddItem').hidden = !!editId;
   renderScanReview();
   $('scanReview').hidden = false;
   $('scanReview').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1384,6 +1459,7 @@ function openScanReview(items, note) {
 
 function closeScanReview() {
   SCAN_REVIEW = null;
+  SCAN_EDIT_ID = null;
   $('scanReview').hidden = true;
   $('scanReviewItems').innerHTML = '';
 }
@@ -1400,16 +1476,33 @@ function renderScanReview() {
         <button class="meal-remove" data-remove aria-label="Remove item">✕</button>
       </div>
       ${it.portion ? `<p class="muted-copy scan-review-portion">~${it.portion}</p>` : ''}
+      ${it.per100 ? `<div class="scan-review-grams"><label>How much did you eat? <input type="number" inputmode="numeric" value="${it.grams || 100}" data-grams> g</label></div>` : ''}
       <div class="scan-review-item-nums">
         <label>kcal<input type="number" inputmode="numeric" value="${it.calories || ''}" data-f="calories"></label>
         <label>protein<input type="number" inputmode="numeric" value="${it.proteinG || ''}" data-f="proteinG"></label>
         <label>carbs<input type="number" inputmode="numeric" value="${it.carbG || ''}" data-f="carbG"></label>
         <label>fat<input type="number" inputmode="numeric" value="${it.fatG || ''}" data-f="fatG"></label>
       </div>`;
-    row.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+    row.querySelectorAll('input[data-f]').forEach(inp => inp.addEventListener('input', () => {
       it[inp.dataset.f] = inp.value;
       renderScanReviewTotals();
     }));
+    // Barcode items carry exact label nutrition per 100 g — the grams field
+    // rescales all four macros in place, so the numbers stay label-true for
+    // whatever portion was actually eaten.
+    const gramsInp = row.querySelector('[data-grams]');
+    if (gramsInp) gramsInp.addEventListener('input', () => {
+      const g = Math.max(0, Number(gramsInp.value) || 0);
+      it.grams = g;
+      ['calories', 'proteinG', 'carbG', 'fatG'].forEach(f => {
+        if (it.per100[f] != null) {
+          it[f] = Math.round(it.per100[f] * g / 100);
+          const target = row.querySelector(`input[data-f="${f}"]`);
+          if (target) target.value = it[f] || '';
+        }
+      });
+      renderScanReviewTotals();
+    });
     row.querySelector('[data-remove]').addEventListener('click', () => {
       SCAN_REVIEW.items.splice(idx, 1);
       renderScanReview();
@@ -1441,12 +1534,71 @@ function scanReviewAddItem() {
 function scanReviewLog() {
   const items = SCAN_REVIEW.items.filter(it => (it.name || '').trim() && (Number(it.calories) || Number(it.proteinG)));
   if (!items.length) { showToast('Nothing to log — every item needs a name and a number.'); return; }
+  if (SCAN_EDIT_ID) {
+    const it = items[0];
+    Nutrition.updateMeal(ACTIVE, SCAN_EDIT_ID, it);
+    Sync.pushDebounced(ACTIVE);
+    closeScanReview();
+    renderNutrition();
+    showToast(`Updated ${it.name.trim()} ✓`);
+    return;
+  }
   items.forEach(it => Nutrition.addMeal(ACTIVE, { ...it, name: it.name.trim(), aiEstimated: true }));
   Sync.pushDebounced(ACTIVE);
   closeScanReview();
   $('mealQuickText').value = '';
   renderNutrition();
   showToast(`Logged ${items.length} item${items.length === 1 ? '' : 's'} ✓`);
+}
+
+// Tap a logged meal to fix it in place — same review sheet, single item,
+// saves back onto the same log entry instead of creating a new one.
+function openMealEditor(meal) {
+  openScanReview(
+    [{ name: meal.name, portion: '', calories: meal.calories, proteinG: meal.proteinG, carbG: meal.carbG ?? 0, fatG: meal.fatG ?? 0 }],
+    `Editing "${meal.name}".`,
+    meal.id
+  );
+}
+
+/* --- Barcode → OpenFoodFacts: exact label nutrition for packaged food --- */
+async function handleBarcodeCode(code) {
+  showToast('Looking up barcode…');
+  const res = await Barcode.lookup(code);
+  if (!res.ok) {
+    const msg = {
+      not_found: 'Not in the OpenFoodFacts database — scan the meal as a photo instead.',
+      no_nutrition: 'Product found, but no nutrition data on record — log it by hand or photo.',
+      bad_code: 'That doesn’t look like a barcode number — check the digits.',
+    }[res.error] || 'Couldn’t reach the food database — check your connection and try again.';
+    showToast(msg, 4200);
+    return;
+  }
+  const grams = res.servingG || 100;
+  const scale = g => f => res.per100[f] != null ? Math.round(res.per100[f] * g / 100) : 0;
+  const s = scale(grams);
+  openScanReview([{
+    name: res.name,
+    portion: res.servingLabel ? `1 serving = ${res.servingLabel}` : 'per 100 g — set your portion below',
+    calories: s('calories'), proteinG: s('proteinG'), carbG: s('carbG'), fatG: s('fatG'),
+    per100: res.per100, grams
+  }], 'From the product label via OpenFoodFacts — set the grams you actually ate.');
+}
+
+async function openBarcodeScanner() {
+  const res = await Camera.open({
+    guide: 'food',
+    tip: 'Center the barcode in the box — it detects automatically, no tap needed.',
+    barcode: true,
+    onBarcode: handleBarcodeCode
+  });
+  if (!res.ok) {
+    // iOS Safari has no BarcodeDetector — typing the printed number is the
+    // honest fallback and hits the exact same database.
+    $('barcodeManualRow').hidden = false;
+    $('barcodeManualCode').focus();
+    if (res.error === 'no_detector') showToast('Live scanning isn’t supported in this browser — type the number printed under the barcode instead.', 4500);
+  }
 }
 
 async function estimateTextClick() {
@@ -1954,6 +2106,15 @@ function init() {
   });
   $('btnAddMeal').addEventListener('click', addMealFromForm);
   $('btnScanFood').addEventListener('click', openFoodScanCamera);
+  $('btnScanBarcode').addEventListener('click', openBarcodeScanner);
+  $('btnBarcodeLookup').addEventListener('click', () => {
+    const code = $('barcodeManualCode').value.trim();
+    if (!code) { showToast('Type the number printed under the barcode.'); return; }
+    $('barcodeManualCode').value = '';
+    $('barcodeManualRow').hidden = true;
+    handleBarcodeCode(code);
+  });
+  $('barcodeManualCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnBarcodeLookup').click(); });
   $('btnUploadFood').addEventListener('click', () => $('foodPhotoInput').click());
   $('foodPhotoInput').addEventListener('change', e => { if (e.target.files[0]) scanFoodPhoto(e.target.files[0]); e.target.value = ''; });
   $('btnEstimateText').addEventListener('click', estimateTextClick);

@@ -66,6 +66,7 @@ const Store = (() => {
       createdAt: Date.now(),
       history: { workouts: [], checkins: [], chats: [], water: [], meals: [], fitbitDaily: [] },
       customExercises: [],
+      supplementStack: [],
       planSeed: Math.floor(Math.random() * 1000)
     };
   }
@@ -81,6 +82,7 @@ const Store = (() => {
     p.customExercises = p.customExercises || [];
     p.focusAreas = p.focusAreas || [];
     p.excludedExercises = p.excludedExercises || [];
+    p.supplementStack = p.supplementStack || [];
     return p;
   }
   function deleteProfile(id) {

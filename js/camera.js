@@ -159,9 +159,37 @@ const Camera = (() => {
     updateTimerButton();
   }
 
-  async function open({ guide = 'food', tip = '', onCapture }) {
+  // Continuous barcode detection on the live viewfinder — native
+  // BarcodeDetector only (no vendored library, per this app's no-deps
+  // rule). Callers must handle the unsupported case with a manual-entry
+  // fallback; open() reports it via {ok:false, error:'no_detector'}.
+  let barcodeLoopId = null;
+  let onBarcodeCb = null;
+  async function barcodeLoop(detector) {
+    const video = document.getElementById('cameraVideo');
+    if (!stream || !video || !video.videoWidth) {
+      barcodeLoopId = setTimeout(() => barcodeLoop(detector), 250);
+      return;
+    }
+    try {
+      const codes = await detector.detect(video);
+      if (codes && codes.length && codes[0].rawValue) {
+        const value = codes[0].rawValue;
+        if (navigator.vibrate) navigator.vibrate(80);
+        const cb = onBarcodeCb;
+        close();
+        if (cb) cb(value);
+        return;
+      }
+    } catch (e) { /* skip frame */ }
+    barcodeLoopId = setTimeout(() => barcodeLoop(detector), 300);
+  }
+
+  async function open({ guide = 'food', tip = '', onCapture, barcode = false, onBarcode }) {
     if (!supported()) return { ok: false, error: 'unsupported' };
+    if (barcode && !('BarcodeDetector' in window)) return { ok: false, error: 'no_detector' };
     onCaptureCb = onCapture;
+    onBarcodeCb = onBarcode || null;
     currentGuide = guide;
     lastPose = null;
     torchOn = false;
@@ -189,6 +217,12 @@ const Camera = (() => {
     if (guide === 'body') {
       ensurePoseModel().then(det => { if (det) poseLoop(); });
     }
+    if (barcode) {
+      try {
+        const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'] });
+        barcodeLoop(detector);
+      } catch (e) { close(); return { ok: false, error: 'no_detector' }; }
+    }
     return { ok: true };
   }
 
@@ -197,6 +231,8 @@ const Camera = (() => {
     if (overlay) overlay.hidden = true;
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     if (poseLoopId) { clearTimeout(poseLoopId); cancelAnimationFrame(poseLoopId); poseLoopId = null; }
+    if (barcodeLoopId) { clearTimeout(barcodeLoopId); barcodeLoopId = null; }
+    onBarcodeCb = null;
     cancelCountdown();
     const canvas = document.getElementById('cameraPoseCanvas');
     if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);

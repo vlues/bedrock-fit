@@ -683,6 +683,36 @@ a{ color: var(--accent-text); }
 .chat-typing span:nth-child(3){ animation-delay:.3s; }
 @keyframes typingDot{ 0%,60%,100%{ opacity:.25; transform:translateY(0);} 30%{ opacity:1; transform:translateY(-3px);} }
 
+/* ---------- supplements: collapsible cards + stack ---------- */
+.supp-head{
+  width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;
+  display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+  font: inherit; color: inherit;
+}
+.supp-head h4{ margin:0 0 6px; font-size:15px; font-weight:600; }
+.supp-tags{ display:flex; flex-wrap:wrap; gap:6px; }
+.supp-tags .evidence-tag{ margin-bottom:0; }
+.supp-goal-tag{ background: var(--pill-clay); color: var(--accent-text); }
+.supp-caret{ font-size:20px; color: var(--muted-text); flex-shrink:0; margin-top:2px; transition: transform .25s var(--ease); }
+.supplement-card.open .supp-caret{ transform: rotate(180deg); }
+.supp-what{ margin-top:10px; }
+.supp-body{ animation: fadein .25s var(--ease) both; }
+.supp-stack-btn{ margin-top:10px; }
+
+/* ---------- meal rows: tap-to-edit + barcode grams ---------- */
+.meal-edit-target{
+  background:none; border:none; padding:0; margin:0; cursor:pointer; text-align:left;
+  font: inherit; color: inherit; flex:1; min-width:0;
+}
+.meal-edit-target span{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.scan-review-grams{ margin-top:8px; }
+.scan-review-grams label{ font-size:12.5px; font-weight:600; color: var(--muted-text); display:flex; align-items:center; gap:8px; }
+.scan-review-grams input{
+  width:76px; padding:7px 8px; border-radius:10px; border:1px solid var(--card-border);
+  background: var(--stepper-bg); color: var(--text); font-size:16px; font-weight:600; text-align:center; outline:none;
+}
+.scan-review-grams input:focus{ border-color: var(--accent-text); }
+
 /* ---------- first-run guided tour ---------- */
 .tour-sheet{ text-align:center; padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
 .tour-icon{ font-size:52px; margin: 6px 0 10px; animation: fadeScale .35s var(--ease-bounce) both; }

@@ -436,6 +436,10 @@
           <button class="chip" data-filter="performance">Performance</button>
           <button class="chip" data-filter="health">General health</button>
         </div>
+        <div class="card" id="myStackCard" hidden>
+          <div class="card-head"><h3>My stack</h3><span class="badge-optional">daily</span></div>
+          <div id="myStackList" class="scan-history"></div>
+        </div>
         <div id="aiSupplementResult" class="ai-result" hidden></div>
         <div id="supplementList" class="supplement-list"></div>
       </div>
@@ -482,6 +486,11 @@
           <div class="btn-row">
             <button class="btn btn-secondary" id="btnScanFood">📷 Scan a photo</button>
             <button class="btn btn-secondary" id="btnUploadFood">🖼 Upload</button>
+          </div>
+          <button class="btn btn-secondary btn-block" id="btnScanBarcode">▮▯▮ Scan a barcode <span class="badge-optional">label-exact</span></button>
+          <div class="field-row" id="barcodeManualRow" hidden style="margin-top:10px;">
+            <label class="field" style="margin-bottom:0;"><span>Barcode number (under the stripes)</span><input type="number" id="barcodeManualCode" inputmode="numeric" placeholder="e.g. 8410000000000"></label>
+            <button class="btn btn-secondary" id="btnBarcodeLookup" style="align-self:flex-end;">Look up</button>
           </div>
 
           <div id="scanReview" class="scan-review" hidden>
@@ -546,7 +555,7 @@
       </div>
       <div class="card">
         <h3>4. Fuel</h3>
-        <p class="muted-copy">Supplement education, plus a nutrition tab: research-based daily calorie and macro targets (tap "Why these numbers?" for the full math), live progress bars for calories/protein/carbs/fat, a water tracker with one-tap logging and undo, and a food log — type what you ate or scan/upload a photo, review the itemized estimate, fix anything, then log it.</p>
+        <p class="muted-copy">Supplement education, plus a nutrition tab: research-based daily calorie and macro targets (tap "Why these numbers?" for the full math), live progress bars for calories/protein/carbs/fat, a water tracker with one-tap logging and undo, and a food log — type what you ate (English or Spanish), scan/upload a photo, or scan a packaged product's barcode for exact label nutrition via OpenFoodFacts. Review the itemized result, fix anything, then log it — and tap any logged meal later to edit it.</p>
       </div>
       <div class="card">
         <h3>5. Bedrock's AI features (optional)</h3>
@@ -734,6 +743,7 @@
 <script src="js/supplements.js"></script>
 <script src="js/chart.js"></script>
 <script src="js/scan.js"></script>
+<script src="js/barcode.js"></script>
 <script src="js/camera.js"></script>
 <script src="js/trajectory.js"></script>
 <script src="js/insights.js"></script>
