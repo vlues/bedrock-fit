@@ -215,9 +215,32 @@
         <p class="hero-sub" id="dashStreak">0 workouts logged</p>
       </div>
 
+      <div class="card forecast-card" id="forecastCard" hidden style="position:relative;">
+        <button class="iconbtn" id="btnDismissForecast" aria-label="Dismiss forecast" style="position:absolute; top:12px; right:12px; width:26px; height:26px;"><span class="ms" style="font-size:15px;">close</span></button>
+        <div class="card-head"><h3>Training forecast</h3><span class="badge-optional">recovery science</span></div>
+        <div class="forecast-hero"><span class="forecast-emoji" id="forecastEmoji">☀️</span><p id="forecastHeadline"></p></div>
+        <div class="forecast-chips" id="forecastChips"></div>
+        <p class="muted-copy" id="forecastFooter" style="margin:10px 0 0;"></p>
+      </div>
+
+      <div class="card" id="todayChecklistCard">
+        <div class="card-head"><h3 data-i18n="Today">Today</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div class="today-checklist" id="todayChecklist"></div>
+      </div>
+
       <div class="card insight-card" id="insightCard">
-        <div class="card-head"><h3>Today's insight</h3><span class="badge-optional" id="insightBadge">daily</span></div>
+        <div class="card-head"><h3 data-i18n="Today's insight">Today's insight</h3><span class="badge-optional" id="insightBadge">daily</span></div>
         <p id="insightText" class="muted-copy">Loading…</p>
+      </div>
+
+      <div class="card" id="weeklyRecapCard" hidden>
+        <div class="card-head"><h3 data-i18n="Your week">Your week</h3><span class="badge-optional">last 7 days</span></div>
+        <div id="weeklyRecapBody"></div>
+      </div>
+
+      <div class="card" id="lastSessionCard" hidden>
+        <div class="card-head"><h3 data-i18n="Last session">Last session</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div id="lastSessionBody"></div>
       </div>
 
       <div class="card" id="fitbitBanner" hidden style="position:relative; transition: transform .25s var(--ease), opacity .25s var(--ease);">
@@ -235,7 +258,7 @@
       </div>
 
       <div class="card" id="readinessCard" hidden>
-        <div class="card-head"><h3>Training load</h3><span class="badge-optional">ACWR · sports-science</span></div>
+        <div class="card-head"><h3 data-i18n="Training load">Training load</h3><span class="badge-optional">ACWR · sports-science</span></div>
         <div id="readinessBody"></div>
       </div>
 
@@ -244,13 +267,19 @@
         <div id="householdBody"></div>
       </div>
 
+      <div class="card" id="weekStripCard">
+        <div class="card-head"><h3>Schedule</h3><span class="badge-optional">adaptive</span></div>
+        <div class="week-strip" id="weekStrip"></div>
+        <p class="muted-copy" id="weekStripNote" style="margin:10px 0 0;"></p>
+      </div>
+
       <div class="card" id="todayCard">
         <div class="card-head">
-          <h3>Today's session</h3>
+          <h3 data-i18n="Today's session">Today's session</h3>
           <span class="pill" id="todayDayPill">Day 1</span>
         </div>
         <div id="todayExerciseList" class="exercise-list"></div>
-        <button class="btn btn-primary btn-block" id="btnStartWorkout">Start workout</button>
+        <button class="btn btn-primary btn-block" id="btnStartWorkout" data-i18n="Start workout">Start workout</button>
       </div>
 
       <div class="card-grid">
@@ -281,7 +310,7 @@
       </div>
       <p class="workout-scheme" id="workoutScheme"></p>
       <div id="workoutList" class="workout-log-list"></div>
-      <button class="btn btn-primary btn-block" id="btnFinishWorkout">Finish & save</button>
+      <button class="btn btn-primary btn-block" id="btnFinishWorkout" data-i18n="Finish & save">Finish &amp; save</button>
     </div>
     <div class="rest-timer-bar" id="restTimerBar" hidden>
       <span id="restTimerLabel">Rest — 1:30</span>
@@ -296,15 +325,15 @@
   <section class="view" id="view-progress" hidden>
     <div class="page">
       <button class="btn btn-ghost" data-close-progress>← Back</button>
-      <h2>Progress check-in</h2>
+      <h2 data-i18n="Progress check-in">Progress check-in</h2>
 
       <div class="card">
-        <div class="card-head"><h3>At a glance</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div class="card-head"><h3 data-i18n="At a glance">At a glance</h3><span class="badge-optional">📊 from your logs</span></div>
         <div class="stat-tiles" id="progressStatTiles"></div>
       </div>
 
       <div class="card">
-        <h3>Standing photo</h3>
+        <h3 data-i18n="Standing photo">Standing photo</h3>
         <p class="muted-copy">Same spot, same lighting, same time of day if you can. Stand relaxed, arms slightly away from your body, facing the camera.</p>
         <div class="scan-guide">
           <div class="scan-silhouette">🧍</div>
@@ -312,14 +341,14 @@
         </div>
         <input type="file" accept="image/*" id="scanPhotoInput" hidden>
         <div class="btn-row">
-          <button class="btn btn-secondary" id="btnTakePhoto">📷 Take photo</button>
-          <button class="btn btn-secondary" id="btnUploadPhoto">🖼 Upload</button>
+          <button class="btn btn-secondary" id="btnTakePhoto" data-i18n="📷 Take photo">📷 Take photo</button>
+          <button class="btn btn-secondary" id="btnUploadPhoto" data-i18n="🖼 Upload">🖼 Upload</button>
         </div>
         <div id="scanPhotoPreview" class="scan-preview" hidden></div>
       </div>
 
       <div class="card">
-        <h3>Measurements</h3>
+        <h3 data-i18n="Measurements">Measurements</h3>
         <div class="field-row">
           <label class="field"><span>Weight</span><input type="number" id="scan-weight" inputmode="decimal"></label>
           <label class="field"><span>Waist</span><input type="number" id="scan-waist" inputmode="decimal"></label>
@@ -332,7 +361,7 @@
           <label class="field"><span>Hips / glutes</span><input type="number" id="scan-hips" inputmode="decimal"></label>
           <label class="field"><span>Thigh</span><input type="number" id="scan-thigh" inputmode="decimal"></label>
         </div>
-        <button class="btn btn-primary btn-block" id="btnSaveScan">Save check-in</button>
+        <button class="btn btn-primary btn-block" id="btnSaveScan" data-i18n="Save check-in">Save check-in</button>
       </div>
 
       <div class="card" id="scanAiCard">
@@ -351,32 +380,32 @@
       </div>
 
       <div class="card" id="photoHistoryCard" hidden>
-        <div class="card-head"><h3>Progress photos</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div class="card-head"><h3 data-i18n="Progress photos">Progress photos</h3><span class="badge-optional">📊 from your logs</span></div>
         <p class="muted-copy">Every check-in photo you've taken — kept right here, not just the latest one. Tap any to view full-size.</p>
         <div class="photo-history-strip" id="photoHistoryStrip"></div>
       </div>
 
       <div class="card">
-        <h3>Weight trend</h3>
+        <h3 data-i18n="Weight trend">Weight trend</h3>
         <canvas id="progressChart" width="320" height="160"></canvas>
         <p class="muted-copy" id="weightCaption"></p>
         <div id="scanHistory" class="scan-history"></div>
       </div>
 
       <div class="card" id="measurementTrendCard" hidden>
-        <div class="card-head"><h3>Measurement trends</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div class="card-head"><h3 data-i18n="Measurement trends">Measurement trends</h3><span class="badge-optional">📊 from your logs</span></div>
         <div id="measurementTrends" class="scan-history"></div>
         <p class="muted-copy" style="margin-top:8px;">First logged value → latest, per measurement. Tape measurements beat the scale for seeing recomposition — the scale can hold still while the waist drops and the arms grow.</p>
       </div>
 
       <div class="card">
-        <div class="card-head"><h3>Muscle balance</h3><span class="badge-optional">last 28 days</span></div>
+        <div class="card-head"><h3 data-i18n="Muscle balance">Muscle balance</h3><span class="badge-optional">last 28 days</span></div>
         <canvas id="muscleChart" width="320" height="140"></canvas>
         <p class="muted-copy" id="muscleCaption"></p>
       </div>
 
       <div class="card">
-        <div class="card-head"><h3>Exercise progression</h3></div>
+        <div class="card-head"><h3 data-i18n="Exercise progression">Exercise progression</h3></div>
         <label class="field"><span>Pick a lift</span>
           <select id="exercisePicker"></select>
         </label>
@@ -386,7 +415,7 @@
 
       <div class="card">
         <div class="card-head">
-          <h3>Trajectory</h3>
+          <h3 data-i18n="Trajectory">Trajectory</h3>
           <span class="badge-optional">estimate</span>
         </div>
         <p class="muted-copy">📊 From your logs — built automatically from the sets, reps, and weight you log every session, plus device data if Fitbit is connected. The more sessions logged, the sharper this gets.</p>
@@ -407,10 +436,15 @@
 
       <div class="card">
         <div class="card-head">
-          <h3>Past workouts</h3>
+          <h3 data-i18n="Past workouts">Past workouts</h3>
           <span class="badge-optional">📊 from your logs</span>
         </div>
         <div id="pastWorkoutsList" class="scan-history"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3 data-i18n="Trophy case">Trophy case</h3><span class="badge-optional">📊 earned, never given</span></div>
+        <div class="badge-grid" id="badgeGrid"></div>
       </div>
     </div>
   </section>
@@ -421,8 +455,8 @@
       <button class="btn btn-ghost" data-close-supplements>← Back</button>
       <h2>Fuel</h2>
       <div class="chip-row" id="fuelTabs">
-        <button class="chip active" data-tab="supplements">Supplements</button>
-        <button class="chip" data-tab="nutrition">Nutrition</button>
+        <button class="chip active" data-tab="supplements" data-i18n="Supplements">Supplements</button>
+        <button class="chip" data-tab="nutrition" data-i18n="Nutrition">Nutrition</button>
       </div>
 
       <div id="panel-supplements">
@@ -437,7 +471,7 @@
           <button class="chip" data-filter="health">General health</button>
         </div>
         <div class="card" id="myStackCard" hidden>
-          <div class="card-head"><h3>My stack</h3><span class="badge-optional">daily</span></div>
+          <div class="card-head"><h3 data-i18n="My stack">My stack</h3><span class="badge-optional">daily</span></div>
           <div id="myStackList" class="scan-history"></div>
         </div>
         <div id="aiSupplementResult" class="ai-result" hidden></div>
@@ -446,27 +480,27 @@
 
       <div id="panel-nutrition" hidden>
         <div class="card">
-          <div class="card-head"><h3>Your daily targets</h3><span class="badge-optional">Mifflin-St Jeor</span></div>
+          <div class="card-head"><h3 data-i18n="Your daily targets">Your daily targets</h3><span class="badge-optional">Mifflin-St Jeor</span></div>
           <div id="nutritionTargets"></div>
           <button class="btn btn-ghost btn-block" id="btnWhyTargets" hidden>Why these numbers? ▾</button>
           <div id="targetExplainer" class="target-explainer" hidden></div>
         </div>
 
         <div class="card">
-          <div class="card-head"><h3>Today so far</h3><span class="badge-optional">📊 from your logs</span></div>
+          <div class="card-head"><h3 data-i18n="Today so far">Today so far</h3><span class="badge-optional">📊 from your logs</span></div>
           <div id="macroBars"></div>
         </div>
 
         <div class="card">
-          <div class="card-head"><h3>Water</h3><span class="badge-optional" id="waterBadge"></span></div>
+          <div class="card-head"><h3 data-i18n="Water">Water</h3><span class="badge-optional" id="waterBadge"></span></div>
           <div class="water-bar"><div class="water-bar-fill" id="waterBarFill"></div></div>
           <p class="muted-copy" id="waterCaption" style="margin:8px 0 10px;"></p>
           <div class="chip-row" style="margin-bottom:0;">
-            <button class="chip" data-water="250">🥛 Glass +250</button>
-            <button class="chip" data-water="500">🍶 Bottle +500</button>
-            <button class="chip" data-water="750">🫙 Large +750</button>
-            <button class="chip" id="btnWaterCustom">✏️ Custom</button>
-            <button class="chip" id="btnWaterUndo">↩ Undo</button>
+            <button class="chip" data-water="250" data-i18n="🥛 Glass +250">🥛 Glass +250</button>
+            <button class="chip" data-water="500" data-i18n="🍶 Bottle +500">🍶 Bottle +500</button>
+            <button class="chip" data-water="750" data-i18n="🫙 Large +750">🫙 Large +750</button>
+            <button class="chip" id="btnWaterCustom" data-i18n="✏️ Custom">✏️ Custom</button>
+            <button class="chip" id="btnWaterUndo" data-i18n="↩ Undo">↩ Undo</button>
           </div>
           <div class="field-row" id="waterCustomRow" hidden style="margin-top:10px;">
             <label class="field" style="margin-bottom:0;"><span>Amount (ml)</span><input type="number" id="waterCustomMl" inputmode="numeric" placeholder="e.g. 330"></label>
@@ -475,19 +509,20 @@
         </div>
 
         <div class="card">
-          <h3>Today's food</h3>
+          <h3 data-i18n="Today's food">Today's food</h3>
           <div id="mealList" class="scan-history"></div>
 
           <div id="frequentMealChips" class="chip-row"></div>
 
-          <label class="field"><span>What did you eat?</span><input type="text" id="mealQuickText" placeholder="e.g. 2 eggs and toast with butter"></label>
-          <button class="btn btn-secondary btn-block" id="btnEstimateText">✨ Estimate for me</button>
+          <label class="field"><span data-i18n="What did you eat?">What did you eat?</span><input type="text" id="mealQuickText" placeholder="e.g. 2 eggs and toast with butter"></label>
+          <button class="btn btn-secondary btn-block" id="btnEstimateText" data-i18n="✨ Estimate for me">✨ Estimate for me</button>
           <input type="file" accept="image/*" id="foodPhotoInput" hidden>
           <div class="btn-row">
-            <button class="btn btn-secondary" id="btnScanFood">📷 Scan a photo</button>
-            <button class="btn btn-secondary" id="btnUploadFood">🖼 Upload</button>
+            <button class="btn btn-secondary" id="btnScanFood" data-i18n="📷 Scan a photo">📷 Scan a photo</button>
+            <button class="btn btn-secondary" id="btnUploadFood" data-i18n="🖼 Upload">🖼 Upload</button>
           </div>
           <button class="btn btn-secondary btn-block" id="btnScanBarcode">▮▯▮ Scan a barcode <span class="badge-optional">label-exact</span></button>
+          <div class="chip-row" id="recentProductChips" style="margin:10px 0 0;"></div>
           <div class="field-row" id="barcodeManualRow" hidden style="margin-top:10px;">
             <label class="field" style="margin-bottom:0;"><span>Barcode number (under the stripes)</span><input type="number" id="barcodeManualCode" inputmode="numeric" placeholder="e.g. 8410000000000"></label>
             <button class="btn btn-secondary" id="btnBarcodeLookup" style="align-self:flex-end;">Look up</button>
@@ -495,15 +530,15 @@
 
           <div id="scanReview" class="scan-review" hidden>
             <div class="scan-review-head">
-              <h4>Check what Bedrock saw</h4>
+              <h4 data-i18n="Check what Bedrock saw">Check what Bedrock saw</h4>
               <p class="muted-copy" id="scanReviewNote">Rough estimates — edit anything, remove what's wrong, add what's missing.</p>
             </div>
             <div id="scanReviewItems"></div>
-            <button class="add-set-btn" id="btnScanAddItem">+ Add an item</button>
+            <button class="add-set-btn" id="btnScanAddItem" data-i18n="+ Add an item">+ Add an item</button>
             <div class="scan-review-totals" id="scanReviewTotals"></div>
             <div class="btn-row">
-              <button class="btn btn-ghost" id="btnScanCancel">Cancel</button>
-              <button class="btn btn-primary" id="btnScanLog">Log meal</button>
+              <button class="btn btn-ghost" id="btnScanCancel" data-i18n="Cancel">Cancel</button>
+              <button class="btn btn-primary" id="btnScanLog" data-i18n="Log meal">Log meal</button>
             </div>
           </div>
 
@@ -511,9 +546,14 @@
             <label class="field"><span>Calories</span><input type="number" id="mealCalories" inputmode="numeric"></label>
             <label class="field"><span>Protein (g)</span><input type="number" id="mealProtein" inputmode="numeric"></label>
           </div>
-          <button class="btn btn-primary btn-block" id="btnAddMeal">Log it</button>
-          <button class="btn btn-secondary btn-block" id="btnSuggestMeal">What should I eat next?</button>
+          <button class="btn btn-primary btn-block" id="btnAddMeal" data-i18n="Log it">Log it</button>
+          <button class="btn btn-secondary btn-block" id="btnSuggestMeal" data-i18n="What should I eat next?">What should I eat next?</button>
           <div id="mealSuggestResult" class="ai-result" hidden></div>
+        </div>
+
+        <div class="card" id="foodHistoryCard" hidden>
+          <div class="card-head"><h3>Food history</h3><span class="badge-optional">📊 from your logs</span></div>
+          <div id="foodHistoryList" class="scan-history"></div>
         </div>
       </div>
     </div>
@@ -524,14 +564,14 @@
     <div class="page page-chat">
       <div style="display:flex; align-items:center; justify-content:space-between;">
         <button class="btn btn-ghost" data-close-chat>← Back</button>
-        <button class="btn btn-ghost" id="btnClearChat" style="font-size:12px;">Clear chat</button>
+        <button class="btn btn-ghost" id="btnClearChat" style="font-size:12px;" data-i18n="Clear chat">Clear chat</button>
       </div>
-      <h2>Ask Bedrock</h2>
+      <h2 data-i18n="Ask Bedrock">Ask Bedrock</h2>
       <div class="chip-row" id="chatPrompts"></div>
       <div id="chatLog" class="chat-log"></div>
       <div class="chat-input-row">
         <input type="text" id="chatInput" placeholder="Ask about your plan, form, recovery…">
-        <button class="btn btn-primary" id="btnChatSend">Send</button>
+        <button class="btn btn-primary" id="btnChatSend" data-i18n="Send">Send</button>
       </div>
     </div>
   </section>
@@ -603,6 +643,16 @@
           <button type="button" class="unit-opt" data-unit="lb">lb</button>
           <button type="button" class="unit-opt" data-unit="kg">kg</button>
         </div>
+      </div>
+
+      <div class="card">
+        <h3>Idioma / Language</h3>
+        <div class="unit-toggle" id="settingsLang">
+          <button type="button" class="unit-opt" data-lang="en">English</button>
+          <button type="button" class="unit-opt" data-lang="es">Español</button>
+        </div>
+        <p class="muted-copy" style="margin-top:10px;">Español (beta): traduce la interfaz principal — menús, botones y títulos. Los consejos del coach y los análisis siguen en inglés por ahora.</p>
+        <button class="btn btn-ghost btn-block" id="btnReplayTour" style="margin-top:6px;">↻ Replay the intro tour</button>
       </div>
 
       <div class="card">
@@ -692,11 +742,12 @@
     </div>
   </div>
 
-  <!-- ===== FIRST-RUN GUIDED TOUR ===== -->
-  <div class="sheet-backdrop" id="tourOverlay" hidden>
-    <div class="sheet tour-sheet">
-      <div class="tour-icon" id="tourIcon">🏠</div>
-      <h3 id="tourTitle">Welcome to Bedrock</h3>
+  <!-- ===== FIRST-RUN SPOTLIGHT TOUR (points at the real UI) ===== -->
+  <div class="coach-overlay" id="tourOverlay" hidden>
+    <div class="coach-spot" id="coachSpot"></div>
+    <div class="coach-tip" id="coachTip">
+      <div class="coach-emoji" id="tourIcon">👋</div>
+      <h3 id="tourTitle">Welcome</h3>
       <p class="tour-copy" id="tourCopy"></p>
       <div class="tour-dots" id="tourDots"></div>
       <div class="btn-row">
@@ -709,7 +760,10 @@
   <!-- ===== PHOTO HISTORY LIGHTBOX ===== -->
   <div class="sheet-backdrop" id="photoLightbox" hidden>
     <div class="sheet" style="text-align:center;">
-      <img id="photoLightboxImg" alt="Progress photo" style="width:100%; border-radius:16px; display:block;">
+      <div class="lightbox-photo-wrap">
+        <img id="photoLightboxImg" alt="Progress photo" style="width:100%; border-radius:16px; display:block;">
+        <div class="lightbox-overlay" id="photoLightboxOverlay"></div>
+      </div>
       <p class="muted-copy" id="photoLightboxCaption" style="margin-top:10px;"></p>
       <button class="btn btn-ghost btn-block" id="btnClosePhotoLightbox">Close</button>
     </div>
@@ -726,16 +780,17 @@
 
   <!-- ===== BOTTOM NAV ===== -->
   <nav class="bottomnav" id="bottomnav" hidden>
-    <button class="navbtn active" data-nav="dashboard"><span class="ms">cottage</span><small>Home</small></button>
-    <button class="navbtn" data-nav="progress"><span class="ms">trending_up</span><small>Progress</small></button>
+    <button class="navbtn active" data-nav="dashboard"><span class="ms">cottage</span><small data-i18n="Home">Home</small></button>
+    <button class="navbtn" data-nav="progress"><span class="ms">trending_up</span><small data-i18n="Progress">Progress</small></button>
     <div class="nav-fab-spacer"></div>
-    <button class="navbtn" data-nav="supplements"><span class="ms">nutrition</span><small>Fuel</small></button>
-    <button class="navbtn" data-nav="chat"><span class="ms">forum</span><small>Ask</small></button>
+    <button class="navbtn" data-nav="supplements"><span class="ms">nutrition</span><small data-i18n="Fuel">Fuel</small></button>
+    <button class="navbtn" data-nav="chat"><span class="ms">forum</span><small data-i18n="Ask">Ask</small></button>
   </nav>
   <button class="nav-fab" id="navFab" aria-label="Start workout" hidden><span class="ms">play_arrow</span></button>
 
 </div>
 
+<script src="js/i18n.js"></script>
 <script src="js/store.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/api.js"></script>

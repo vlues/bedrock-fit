@@ -22,7 +22,7 @@ function showView(name) {
   const navMap = { dashboard: 'dashboard', progress: 'progress', supplements: 'supplements', chat: 'chat' };
   qsa('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.nav === navMap[name]));
   const titles = { dashboard: 'Bedrock', progress: 'Progress', supplements: 'Fuel', chat: 'Ask Bedrock', settings: 'Settings', workout: 'Session', guide: 'Guide' };
-  if ($('topbarTitle')) $('topbarTitle').textContent = titles[name] || 'Bedrock';
+  if ($('topbarTitle')) $('topbarTitle').textContent = I18N.t(titles[name] || 'Bedrock');
   window.scrollTo(0, 0);
 }
 
@@ -250,12 +250,209 @@ function renderDashboard() {
     }
   });
 
+  renderTrainingForecast();
+  renderWeekStrip();
+  renderTodayChecklist();
+  renderWeeklyRecap();
+  renderLastSession();
   renderFitbitBanner();
   renderDailyInsight();
   renderReadiness();
   renderHousehold();
   renderFitbitToday();
   silentFitbitAutoSync();
+}
+
+/* ---------------------------------------------------------------- */
+/* Training Forecast — the day's training conditions read like a       */
+/* weather report. Every input is real: per-muscle recovery hours      */
+/* (muscle-protein-synthesis elevation runs ~48-72h post-training, so  */
+/* <24h = still storming, 24-48h = clearing, 48h+ = clear skies),      */
+/* the ACWR load trend as the "pressure system", and hydration as      */
+/* humidity. A metaphor, not a measurement — but every icon traces to  */
+/* a number from the user's own logs.                                  */
+/* ---------------------------------------------------------------- */
+const FORECAST_DISMISS_KEY = 'bedrock_forecast_dismissed';
+
+function muscleRecoveryHours() {
+  const out = { push: null, pull: null, legs: null, core: null };
+  (ACTIVE.history.workouts || []).forEach(w => {
+    (w.exercises || []).forEach(ex => {
+      const def = Workout.EX.find(e => e.id === ex.id) || (ACTIVE.customExercises || []).find(e => e.id === ex.id);
+      if (!def || out[def.muscle] === undefined) return;
+      if (out[def.muscle] == null || w.date > out[def.muscle]) out[def.muscle] = w.date;
+    });
+  });
+  const now = Date.now();
+  Object.keys(out).forEach(m => { if (out[m] != null) out[m] = Math.round((now - out[m]) / 3600000); });
+  return out; // hours since last trained, or null if never
+}
+
+function renderTrainingForecast() {
+  const card = $('forecastCard');
+  if (localStorage.getItem(FORECAST_DISMISS_KEY) === new Date().toDateString()) { card.hidden = true; return; }
+  const workouts = ACTIVE.history.workouts || [];
+  if (!workouts.length) { card.hidden = true; return; } // nothing to forecast from yet
+  card.hidden = false;
+
+  const rec = muscleRecoveryHours();
+  const stalled = Insights.stalledExercises(ACTIVE);
+  const session = Workout.todaysSession(ACTIVE, stalled);
+  const sessionMuscles = [...new Set(session.exercises.map(ex => (Workout.EX.find(e => e.id === ex.id) || {}).muscle).filter(Boolean))];
+
+  const weatherFor = h => h == null ? { icon: '🌥', word: 'cold start' }
+    : h < 24 ? { icon: '⛈', word: 'recovering' }
+    : h < 48 ? { icon: '🌤', word: 'clearing' }
+    : { icon: '☀️', word: 'ready' };
+
+  const labels = { push: 'Push', pull: 'Pull', legs: 'Legs', core: 'Core' };
+  $('forecastChips').innerHTML = Object.keys(labels).map(m => {
+    const w = weatherFor(rec[m]);
+    return `<div class="forecast-chip"><span>${w.icon}</span><b>${labels[m]}</b><small>${rec[m] == null ? 'untrained' : rec[m] >= 168 ? '7d+' : rec[m] + 'h'} · ${w.word}</small></div>`;
+  }).join('');
+
+  // Headline: conditions over TODAY'S session muscles + the load pressure system
+  const sessionHours = sessionMuscles.map(m => rec[m]).filter(h => h != null);
+  const minH = sessionHours.length ? Math.min(...sessionHours) : null;
+  const acwr = Trajectory.acwr(ACTIVE);
+  let icon, headline;
+  if (acwr.hasData && acwr.zone === 'high-risk') {
+    icon = '🌩'; headline = `Storm front: training load is spiking faster than your body's adapted to. Today's ${session.label} is fine — just resist adding extra.`;
+  } else if (minH != null && minH < 24) {
+    icon = '🌧'; headline = `Still raining on ${session.label} — those muscles were hit ${minH}h ago and are mid-repair. Doable, but expect heavier-feeling weights.`;
+  } else if (minH != null && minH < 48) {
+    icon = '🌤'; headline = `Clearing up for ${session.label} — ${minH}h since those muscles worked. By tonight they're fully rebuilt.`;
+  } else {
+    icon = '☀️'; headline = `Clear skies for ${session.label}${minH != null ? ` — fully recovered (${minH >= 168 ? '7+ days' : minH + 'h'}) and primed to push` : ''}${acwr.hasData && acwr.zone === 'sweet-spot' ? ', load trend in the sweet spot' : ''}.`;
+  }
+  $('forecastEmoji').textContent = icon;
+  $('forecastHeadline').textContent = headline;
+
+  const waterPct = Math.round(Nutrition.todayWaterMl(ACTIVE) / Nutrition.waterTargetMl(ACTIVE) * 100);
+  $('forecastFooter').textContent = `Humidity check: ${waterPct}% of today's water target${waterPct < 50 ? ' — strength output measurably drops when dehydrated, drink up before training' : ' 💧'}. Based on 48-72h muscle-recovery research + your load trend — a fun read on real numbers, not a prescription.`;
+}
+
+/* ---------------------------------------------------------------- */
+/* Week strip — the schedule made visible: which days are training     */
+/* days, which are rest days, what's already banked (✓) and what's     */
+/* coming. Adaptive on purpose: the session rotation advances when you */
+/* ACTUALLY train, so shifting a workout to another day never breaks   */
+/* the plan — the strip just re-drapes the remaining sessions over the */
+/* remaining suggested days.                                           */
+/* ---------------------------------------------------------------- */
+function suggestedTrainingWeekdays(days) {
+  // Mon=0..Sun=6 — standard spacings: full-body days get a rest day
+  // between them; 4-day upper/lower runs as 2-on-1-off-2-on.
+  return { 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4], 6: [0, 1, 2, 3, 4, 5] }[Math.min(6, Math.max(2, days))];
+}
+
+function renderWeekStrip() {
+  const days = Number(ACTIVE.days) || 3;
+  const stalled = Insights.stalledExercises(ACTIVE);
+  const plan = Workout.buildWeekPlan(ACTIVE, stalled);
+  const completed = (ACTIVE.history.workouts || []).length;
+  const suggested = suggestedTrainingWeekdays(days);
+  const todayWd = (new Date().getDay() + 6) % 7;
+  const monday = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - todayWd); return d.getTime(); })();
+
+  // sessions actually logged this week, by weekday
+  const loggedByDay = {};
+  (ACTIVE.history.workouts || []).filter(w => w.date >= monday).forEach(w => {
+    loggedByDay[(new Date(w.date).getDay() + 6) % 7] = w.label || 'Session';
+  });
+
+  // remaining plan labels draped over remaining suggested (unlogged) days
+  let cursor = completed % plan.length;
+  const upcomingByDay = {};
+  for (let wd = todayWd; wd < 7; wd++) {
+    if (loggedByDay[wd] != null) continue;
+    if (wd === todayWd && Object.keys(loggedByDay).map(Number).includes(todayWd)) continue;
+    if (suggested.includes(wd)) {
+      upcomingByDay[wd] = plan[cursor % plan.length].label;
+      cursor++;
+    }
+  }
+
+  const dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  $('weekStrip').innerHTML = dayLetters.map((letter, wd) => {
+    const done = loggedByDay[wd] != null;
+    const planned = upcomingByDay[wd] != null;
+    const rest = !done && !planned && !suggested.includes(wd);
+    const cls = ['week-day-pill', wd === todayWd ? 'today' : '', done ? 'done' : '', planned ? 'planned' : '', rest ? 'rest' : ''].filter(Boolean).join(' ');
+    const mark = done ? '✓' : planned ? '•' : rest ? '—' : (wd < todayWd ? '·' : '•');
+    const label = done ? loggedByDay[wd] : planned ? upcomingByDay[wd] : rest ? 'Rest' : (wd < todayWd ? 'Missed' : 'Rest');
+    return `<div class="${cls}"><span class="wd-letter">${letter}</span><span class="wd-mark">${mark}</span><span class="wd-label">${label.replace(/^(Day \d+ — |Full Body )/, '').slice(0, 7)}</span></div>`;
+  }).join('');
+
+  const trainedToday = loggedByDay[todayWd] != null;
+  $('weekStripNote').textContent = trainedToday
+    ? `Today's banked ✓ — next up: ${plan[completed % plan.length].label}. Rest until then is part of the program, not a gap in it.`
+    : upcomingByDay[todayWd]
+      ? `Today: ${upcomingByDay[todayWd]}. Miss a day? Nothing breaks — the plan just slides forward to your next session.`
+      : 'Rest day — this is when the muscle you stimulated actually gets built. Training anyway is fine too; the plan adapts either way.';
+}
+
+// Three live habit checks — trained, ate, hydrated — the whole day's job in
+// one glance, each computed from real logs (never just "marked done").
+function renderTodayChecklist() {
+  const isToday = ts => new Date(ts).toDateString() === new Date().toDateString();
+  const trained = (ACTIVE.history.workouts || []).some(w => isToday(w.date));
+  const meals = Nutrition.todayMeals(ACTIVE).length;
+  const waterPct = Math.round(Nutrition.todayWaterMl(ACTIVE) / Nutrition.waterTargetMl(ACTIVE) * 100);
+  const item = (done, icon, label, sub) =>
+    `<div class="check-item${done ? ' done' : ''}"><span class="check-mark">${done ? '✓' : ''}</span><span class="check-icon">${icon}</span><span class="check-label">${label}<small>${sub}</small></span></div>`;
+  $('todayChecklist').innerHTML =
+    item(trained, '🏋️', I18N.t('Session'), trained ? 'logged — nice' : 'tap play when ready') +
+    item(meals > 0, '🍽', I18N.t('Fuel'), meals > 0 ? `${meals} meal${meals === 1 ? '' : 's'} logged` : 'log your first meal') +
+    item(waterPct >= 100, '💧', I18N.t('Water'), waterPct >= 100 ? 'target hit' : `${Math.min(waterPct, 99)}% of target`);
+}
+
+// Last 7 days vs the 7 before — momentum, not just totals. Pure math from
+// logs; hides itself until there's at least one session to talk about.
+function renderWeeklyRecap() {
+  const card = $('weeklyRecapCard');
+  const now = Date.now(), week = 7 * 24 * 3600 * 1000;
+  const workouts = ACTIVE.history.workouts || [];
+  const thisWeek = workouts.filter(w => w.date > now - week);
+  const prevWeek = workouts.filter(w => w.date > now - 2 * week && w.date <= now - week);
+  if (!thisWeek.length && !prevWeek.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const vol = list => list.reduce((a, w) => a + (w.exercises || []).reduce((b, ex) => b + (ex.sets || []).reduce((c, s) => c + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0), 0);
+  const vThis = Math.round(vol(thisWeek)), vPrev = Math.round(vol(prevWeek));
+  const volDelta = vPrev > 0 ? Math.round((vThis - vPrev) / vPrev * 100) : null;
+  const prCount = Object.values(Insights.exercisePRs(ACTIVE)).filter(p => p.date > now - week).length;
+  const planned = Number(ACTIVE.days) || 3;
+  const mealDays = new Set((ACTIVE.history.meals || []).filter(m => m.date > now - week).map(m => new Date(m.date).toDateString())).size;
+  const row = (l, v) => `<div class="scan-history-row"><span>${l}</span><span>${v}</span></div>`;
+  const spark = thisWeek.length >= planned ? ' 🎯' : '';
+  $('weeklyRecapBody').innerHTML =
+    row('Sessions', `${thisWeek.length} / ${planned} planned${spark}`) +
+    row('Volume lifted', `${vThis.toLocaleString()} lb·reps${volDelta != null ? ` (${volDelta >= 0 ? '+' : ''}${volDelta}% vs last wk)` : ''}`) +
+    (prCount ? row('New PRs', `🏆 × ${prCount}`) : '') +
+    row('Days with food logged', `${mealDays} / 7`) +
+    `<p class="muted-copy" style="margin-top:8px;">${thisWeek.length >= planned ? 'Full week banked — this is what progress is made of.' : thisWeek.length > 0 ? `${planned - thisWeek.length} more session${planned - thisWeek.length === 1 ? '' : 's'} hits the plan — the streak only needs one.` : 'Nothing logged in 7 days — the easiest session this week is the one that restarts the engine.'}</p>`;
+}
+
+// "What did I actually do last time?" without leaving Home — label, date,
+// duration, volume, and the heaviest set, with a tap-through to the full log.
+function renderLastSession() {
+  const card = $('lastSessionCard');
+  const list = (ACTIVE.history.workouts || []).filter(w => w.source !== 'fitbit').sort((a, b) => b.date - a.date);
+  const w = list[0];
+  if (!w) { card.hidden = true; return; }
+  card.hidden = false;
+  const vol = (w.exercises || []).reduce((a, ex) => a + (ex.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
+  let top = null;
+  (w.exercises || []).forEach(ex => (ex.sets || []).forEach(s => {
+    if (!top || Number(s.weight) > Number(top.weight)) top = { name: ex.name, weight: s.weight, reps: s.reps };
+  }));
+  const d = new Date(w.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  $('lastSessionBody').innerHTML = `
+    <div class="scan-history-row"><span>${w.label || 'Session'}</span><span>${d}</span></div>
+    ${top && top.weight ? `<div class="scan-history-row"><span>Heaviest set</span><span>${top.name} — ${displayWeight(Number(top.weight))} × ${top.reps}</span></div>` : ''}
+    <div class="scan-history-row"><span>Volume${w.durationMin ? ' · time' : ''}</span><span>${Math.round(vol).toLocaleString()} lb·reps${w.durationMin ? ` · ⏱ ${w.durationMin} min` : ''}</span></div>
+    <button class="btn btn-ghost btn-block" id="btnSeeAllSessions" style="margin-top:4px;">See every session ▸</button>`;
+  $('btnSeeAllSessions').addEventListener('click', () => { showView('progress'); renderProgress(); setTimeout(() => $('pastWorkoutsList').scrollIntoView({ behavior: 'smooth', block: 'center' }), 60); });
 }
 
 /* ---------------------------------------------------------------- */
@@ -432,6 +629,12 @@ function renderReadiness() {
     </div>
     <p class="muted-copy" style="text-align:center; margin:12px 0 0;"><span class="evidence-tag ${zoneClass}" style="margin:0 0 6px;">${zoneLabel}</span></p>
     <p class="muted-copy" style="text-align:center;">${r.message} <span class="badge-optional">📊 from your logs</span></p>
+    <p class="muted-copy readiness-tip">${{
+      'high-risk': '🛌 Recovery move: make today easier or take the rest day — right now extra sleep and protein buy more progress than another hard session.',
+      'caution': '⚖️ Keep today\'s session as planned, but resist adding sets or sessions this week — let the baseline catch up to the spike.',
+      'sweet-spot': '✅ Green light: adaptation is keeping pace with load. Good week to nudge weights up wherever reps feel easy.',
+      'undertraining': '📈 Room to do more — adding one session or a few sets this week is safe and probably worth it.'
+    }[r.zone] || ''}</p>
   `;
 }
 
@@ -689,23 +892,59 @@ function addRestTime(sec) {
 }
 
 /* ---------------------------------------------------------------- */
-/* First-run guided tour — five plain-language cards, one per tab.    */
-/* Shows once per device (skippable, never nags again).               */
+/* First-run spotlight tour — a moving cutout that points at the REAL */
+/* controls (play button, tabs, avatar) instead of describing them in */
+/* the abstract. Shows once per device; replayable from Settings.     */
 /* ---------------------------------------------------------------- */
 const TOUR_DONE_KEY = 'bedrock_tour_done';
 const TOUR_STEPS = [
-  { icon: '🏠', title: 'Home', copy: 'Your workout for today lives here, already built for your goal. Tap the big orange play button to start it — that\'s the whole job.' },
-  { icon: '📈', title: 'Progress', copy: 'Photos, weight, measurements, and charts. Log a quick check-in whenever you want — Bedrock turns it into trends automatically.' },
-  { icon: '🍎', title: 'Fuel', copy: 'Food and water. Snap a photo of your plate and Bedrock counts the calories and macros — you just check its work and tap Log.' },
-  { icon: '💬', title: 'Ask', copy: 'A coach that can actually see your numbers. Ask anything — "am I on track?", "what should I eat tonight?" — and it answers from YOUR data.' },
-  { icon: '👥', title: 'Two people, one app', copy: 'Tap your avatar (top-left) to add or switch to your partner\'s profile. Separate plans, separate logs, one app.' }
+  { target: null, icon: '👋', title: 'Quick spin around Bedrock?', copy: 'Twenty seconds, five stops. You can skip any time — nothing here is homework.' },
+  { target: '#navFab', icon: '▶️', title: 'The only button that matters', copy: 'This starts today\'s workout — already built for your goal, weights pre-filled from last time. Tap, lift, check off sets, done.' },
+  { target: '.navbtn[data-nav="progress"]', icon: '📈', title: 'Progress', copy: 'Photos, weight, and charts that build themselves from what you log. Come here to feel smug about the trend line.' },
+  { target: '.navbtn[data-nav="supplements"]', icon: '🍎', title: 'Fuel', copy: 'Food and water. Snap your plate or scan a barcode — Bedrock counts calories and macros, you just check its work.' },
+  { target: '.navbtn[data-nav="chat"]', icon: '💬', title: 'Ask', copy: 'A coach that can actually see your numbers. "¿Qué como ahora?" works too — it reads your real data before answering.' },
+  { target: '#btnSwitchProfile', icon: '👥', title: 'Two people, one app', copy: 'This avatar switches profiles — add your partner and you each get your own plan and logs. That\'s the tour. Go lift 💪' }
 ];
 let TOUR_STEP = 0;
 
+function positionTourStep() {
+  const step = TOUR_STEPS[TOUR_STEP];
+  const spot = $('coachSpot');
+  const tip = $('coachTip');
+  const el = step.target ? qs(step.target) : null;
+  if (!el) {
+    // no target — dim everything, center the card
+    spot.style.opacity = '0';
+    tip.style.top = '50%';
+    tip.style.bottom = 'auto';
+    tip.style.transform = 'translate(-50%, -50%)';
+    return;
+  }
+  const r = el.getBoundingClientRect();
+  const pad = 8;
+  spot.style.opacity = '1';
+  spot.style.left = (r.left - pad) + 'px';
+  spot.style.top = (r.top - pad) + 'px';
+  spot.style.width = (r.width + pad * 2) + 'px';
+  spot.style.height = (r.height + pad * 2) + 'px';
+  spot.style.borderRadius = Math.min(28, (r.height + pad * 2) / 2) + 'px';
+  // tip above targets in the bottom half of the screen, below otherwise
+  tip.style.transform = 'translateX(-50%)';
+  if (r.top > window.innerHeight / 2) {
+    tip.style.top = 'auto';
+    tip.style.bottom = (window.innerHeight - r.top + pad + 14) + 'px';
+  } else {
+    tip.style.bottom = 'auto';
+    tip.style.top = (r.bottom + pad + 14) + 'px';
+  }
+}
+
 function startTour() {
   TOUR_STEP = 0;
+  showView('dashboard'); // targets live on the dashboard chrome
   renderTourStep();
   $('tourOverlay').hidden = false;
+  window.addEventListener('resize', positionTourStep);
 }
 function renderTourStep() {
   const step = TOUR_STEPS[TOUR_STEP];
@@ -715,10 +954,12 @@ function renderTourStep() {
   $('tourDots').innerHTML = TOUR_STEPS.map((_, i) => `<span class="tour-dot${i === TOUR_STEP ? ' active' : ''}"></span>`).join('');
   $('btnTourNext').textContent = TOUR_STEP === TOUR_STEPS.length - 1 ? 'Let\'s go 💪' : 'Next';
   $('btnTourSkip').hidden = TOUR_STEP === TOUR_STEPS.length - 1;
+  positionTourStep();
 }
 function endTour() {
   $('tourOverlay').hidden = true;
   localStorage.setItem(TOUR_DONE_KEY, '1');
+  window.removeEventListener('resize', positionTourStep);
 }
 function tourNext() {
   if (TOUR_STEP >= TOUR_STEPS.length - 1) { endTour(); return; }
@@ -737,6 +978,40 @@ function showToast(text, ms = 3200) {
   toast._hideTimer = setTimeout(() => { toast.hidden = true; }, ms);
 }
 
+// Dependency-free confetti burst (~1.6s, auto-cleans) — fired only for real,
+// data-verified wins, so the celebration keeps meaning something.
+function fireConfetti() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:99;';
+  canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const colors = ['#b5674a', '#8a9a5b', '#d9a066', '#f4ede0', '#c98960'];
+  const parts = Array.from({ length: 90 }).map(() => ({
+    x: canvas.width / 2 + (Math.random() - 0.5) * 140,
+    y: canvas.height * 0.28,
+    vx: (Math.random() - 0.5) * 11,
+    vy: -(Math.random() * 9 + 4),
+    size: Math.random() * 7 + 4,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3
+  }));
+  const t0 = performance.now();
+  (function frame(t) {
+    const elapsed = t - t0;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    parts.forEach(p => {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.32; p.rot += p.vr;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.globalAlpha = Math.max(0, 1 - elapsed / 1600);
+      ctx.fillStyle = p.color; ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      ctx.restore();
+    });
+    if (elapsed < 1600) requestAnimationFrame(frame); else canvas.remove();
+  })(t0);
+}
+
 // Celebrates real, data-verified wins (a beaten prior best, a maintained
 // streak) — never fabricated hype. Auto-dismisses; tap to close early.
 function showPRToast(prs, streak) {
@@ -746,6 +1021,7 @@ function showPRToast(prs, streak) {
   const lines = realPRs.slice(0, 3).map(p => `🏆 New PR — ${p.name}: ${p.weight} lb (up from ${p.prevWeight} lb)`);
   if (streak >= 2) lines.push(`🔥 ${streak}-week streak — keep it going`);
   if (!lines.length) return;
+  if (realPRs.length) fireConfetti();
   toast.innerHTML = lines.map(l => `<p>${l}</p>`).join('');
   toast.hidden = false;
   clearTimeout(toast._hideTimer);
@@ -849,6 +1125,7 @@ function renderProgress() {
   drawExerciseChart();
   renderScanHistory();
   renderMeasurementTrends();
+  renderBadges();
   renderPhotoHistory();
   renderTrajectoryStats();
   drawFitbitTrendChart();
@@ -876,6 +1153,36 @@ function renderProgressStatTiles() {
     tile(streak, `week streak${streak === 1 ? '' : 's'}`, streak >= 2 ? 'keep it alive 🔥' : '') +
     tile(sessions28, 'sessions / 28d', `${ACTIVE.days || 3}/wk planned`) +
     tile(topPr ? `${topPr.weight} lb` : '—', 'best lift', topPr ? topPr.name : 'no PRs yet');
+}
+
+// Every badge is earned from logged data — no participation trophies, no
+// "log in 3 days in a row" engagement bait. Locked ones show what they take,
+// so the case doubles as a quiet goal list.
+function renderBadges() {
+  const workouts = ACTIVE.history.workouts || [];
+  const n = workouts.length;
+  const streak = Insights.workoutStreak(ACTIVE);
+  const prs = Object.values(Insights.exercisePRs(ACTIVE));
+  const realPRs = prs.length > 0 && n >= 2;
+  const totalVol = Trajectory.volumeSeries(ACTIVE).reduce((a, s) => a + s.volume, 0);
+  const checkins = (ACTIVE.history.checkins || []).length;
+  // any single day where logged water met the target
+  const byDay = {};
+  (ACTIVE.history.water || []).forEach(w => { const k = new Date(w.date).toDateString(); byDay[k] = (byDay[k] || 0) + w.ml; });
+  const hydrationDay = Object.values(byDay).some(ml => ml >= Nutrition.waterTargetMl(ACTIVE));
+  const badges = [
+    { icon: '🥇', label: 'First session', earned: n >= 1, need: 'log 1 workout' },
+    { icon: '📸', label: 'First check-in', earned: checkins >= 1, need: 'log a check-in' },
+    { icon: '🏆', label: 'PR breaker', earned: realPRs, need: 'beat a logged best' },
+    { icon: '🔟', label: '10 sessions', earned: n >= 10, need: `${Math.max(0, 10 - n)} to go` },
+    { icon: '🔥', label: '4-week streak', earned: streak >= 4, need: streak > 0 ? `${streak}/4 weeks` : 'train weekly' },
+    { icon: '🌊', label: 'Hydration day', earned: hydrationDay, need: 'hit a water target' },
+    { icon: '🚀', label: '100k club', earned: totalVol >= 100000, need: `${Math.round(totalVol / 1000)}k / 100k lb·reps` },
+    { icon: '💯', label: '25 sessions', earned: n >= 25, need: `${Math.max(0, 25 - n)} to go` }
+  ];
+  $('badgeGrid').innerHTML = badges.map(b =>
+    `<div class="badge-tile${b.earned ? ' earned' : ''}"><span class="badge-icon">${b.earned ? b.icon : '🔒'}</span><span class="badge-label">${b.label}</span><small>${b.earned ? 'earned ✓' : b.need}</small></div>`
+  ).join('');
 }
 
 // First→latest delta per tape measurement — the recomposition signal the
@@ -915,11 +1222,31 @@ function renderPhotoHistory() {
   });
 }
 
+// A memory, not just a file: the photo carries that day's numbers as chips
+// on the image, and the caption says how far you've come since then — every
+// figure traced from the check-in data logged with the shot.
 function openPhotoLightbox(checkin) {
   $('photoLightboxImg').src = checkin.photo;
-  const parts = [new Date(checkin.date).toLocaleDateString()];
-  if (checkin.weight != null) parts.push(displayWeight(checkin.weight));
-  $('photoLightboxCaption').textContent = parts.join(' · ');
+
+  const daysAgo = Math.round((Date.now() - checkin.date) / 86400000);
+  const when = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : daysAgo < 30 ? `${daysAgo} days ago` : daysAgo < 365 ? `${Math.round(daysAgo / 30)} month${Math.round(daysAgo / 30) === 1 ? '' : 's'} ago` : `${Math.round(daysAgo / 365 * 10) / 10} years ago`;
+
+  const chip = (label, val) => `<span class="lightbox-chip"><b>${val}</b>${label}</span>`;
+  const chips = [`<span class="lightbox-chip lightbox-when">${when} · ${new Date(checkin.date).toLocaleDateString()}</span>`];
+  if (checkin.weight != null) chips.push(chip('weight', displayWeight(checkin.weight)));
+  [['waist', 'waist'], ['chest', 'chest'], ['arm', 'arm'], ['hips', 'hips'], ['thigh', 'thigh']].forEach(([f, label]) => {
+    if (checkin[f] != null && checkin[f] !== '') chips.push(chip(label, checkin[f] + 'in'));
+  });
+  $('photoLightboxOverlay').innerHTML = chips.join('');
+
+  // "since this photo" — the payoff line that makes old photos worth opening
+  const latest = (ACTIVE.history.checkins || []).filter(c => c.weight != null).sort((a, b) => a.date - b.date).slice(-1)[0];
+  let sinceLine = '';
+  if (latest && latest.date > checkin.date && checkin.weight != null) {
+    const d = Math.round((latest.weight - checkin.weight) * 10) / 10;
+    sinceLine = d === 0 ? 'Weight unchanged since this photo.' : `${d < 0 ? '↓' : '↑'} ${displayWeight(Math.abs(d))} since this photo.`;
+  }
+  $('photoLightboxCaption').textContent = sinceLine || 'Every number here is from the check-in you logged with this shot.';
   $('photoLightbox').hidden = false;
 }
 
@@ -954,9 +1281,22 @@ function drawFitbitTrendChart() {
 function renderPastWorkouts() {
   const wrap = $('pastWorkoutsList');
   wrap.innerHTML = '';
-  const list = (ACTIVE.history.workouts || []).slice().sort((a, b) => b.date - a.date).slice(0, 15);
+  const list = (ACTIVE.history.workouts || []).slice().sort((a, b) => b.date - a.date).slice(0, 20);
   if (!list.length) { wrap.innerHTML = '<p class="muted-copy">No sessions logged yet.</p>'; return; }
+  // Week headers ("This week" / "Last week" / "Earlier") so the log scans
+  // as a training diary instead of one undifferentiated list.
+  const weekStart = d => { const dt = new Date(d); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() - (dt.getDay() + 6) % 7); return dt.getTime(); };
+  const thisWk = weekStart(Date.now()), lastWk = thisWk - 7 * 24 * 3600 * 1000;
+  let lastGroup = null;
   list.forEach(w => {
+    const group = w.date >= thisWk ? 'This week' : w.date >= lastWk ? 'Last week' : 'Earlier';
+    if (group !== lastGroup) {
+      const h = document.createElement('div');
+      h.className = 'week-group-head';
+      h.textContent = group;
+      wrap.appendChild(h);
+      lastGroup = group;
+    }
     const d = new Date(w.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     const vol = (w.exercises || []).reduce((a, ex) => a + (ex.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
     const detail = w.source === 'fitbit' ? '⌚ Fitbit' : (vol ? `${Math.round(vol).toLocaleString()} lb·reps` : `${(w.exercises || []).length} exercise${(w.exercises || []).length === 1 ? '' : 's'}`);
@@ -1394,13 +1734,16 @@ function renderNutrition() {
 
   const totals = Nutrition.todayTotals(ACTIVE);
   $('macroBars').innerHTML = target ? (
-    macroBarHTML('Calories', totals.calories, target.calories, ' kcal', { warnOnOver: ACTIVE.goal === 'fatloss' }) +
-    macroBarHTML('Protein', totals.proteinG, target.proteinG, 'g') +
-    macroBarHTML('Carbs', totals.carbG, target.carbG, 'g') +
-    macroBarHTML('Fat', totals.fatG, target.fatG, 'g') +
+    macroBarHTML(I18N.t('Calories'), totals.calories, target.calories, ' kcal', { warnOnOver: ACTIVE.goal === 'fatloss' }) +
+    macroBarHTML(I18N.t('Protein'), totals.proteinG, target.proteinG, 'g') +
+    macroBarHTML(I18N.t('Carbs'), totals.carbG, target.carbG, 'g') +
+    macroBarHTML(I18N.t('Fat'), totals.fatG, target.fatG, 'g') +
     (totals.mealCount > totals.trackedMacroMeals && totals.mealCount > 0
       ? '<p class="muted-copy" style="margin:8px 0 0;">Carb/fat bars only count meals logged with full macros (scans and estimates carry them automatically).</p>' : '')
   ) : `<div class="scan-history-row"><span>Logged today</span><span>${totals.calories} kcal · ${totals.proteinG}g protein</span></div>`;
+
+  renderRecentProducts();
+  renderFoodHistory();
 
   const waterTarget = Nutrition.waterTargetMl(ACTIVE);
   const waterToday = Nutrition.todayWaterMl(ACTIVE);
@@ -1544,6 +1887,7 @@ function scanReviewLog() {
     return;
   }
   items.forEach(it => Nutrition.addMeal(ACTIVE, { ...it, name: it.name.trim(), aiEstimated: true }));
+  items.filter(it => it.per100 && it.code).forEach(rememberProduct);
   Sync.pushDebounced(ACTIVE);
   closeScanReview();
   $('mealQuickText').value = '';
@@ -1581,8 +1925,34 @@ async function handleBarcodeCode(code) {
     name: res.name,
     portion: res.servingLabel ? `1 serving = ${res.servingLabel}` : 'per 100 g — set your portion below',
     calories: s('calories'), proteinG: s('proteinG'), carbG: s('carbG'), fatG: s('fatG'),
-    per100: res.per100, grams
+    per100: res.per100, grams, code: res.code, servingLabel: res.servingLabel
   }], 'From the product label via OpenFoodFacts — set the grams you actually ate.');
+}
+
+// Your usual products, one tap from the barcode button — logging the same
+// yogurt shouldn't need a rescan. Kept per profile (synced), newest first.
+function rememberProduct(item) {
+  ACTIVE.recentProducts = (ACTIVE.recentProducts || []).filter(p => p.code !== item.code);
+  ACTIVE.recentProducts.unshift({
+    code: item.code, name: item.name, per100: item.per100,
+    grams: Number(item.grams) || 100, servingLabel: item.servingLabel || null
+  });
+  ACTIVE.recentProducts = ACTIVE.recentProducts.slice(0, 6);
+}
+
+function renderRecentProducts() {
+  const wrap = $('recentProductChips');
+  const list = ACTIVE.recentProducts || [];
+  wrap.innerHTML = list.map((p, i) => `<button class="chip" data-recentproduct="${i}">↺ ${p.name.length > 22 ? p.name.slice(0, 21) + '…' : p.name}</button>`).join('');
+  wrap.querySelectorAll('[data-recentproduct]').forEach(btn => btn.addEventListener('click', () => {
+    const p = list[Number(btn.dataset.recentproduct)];
+    const scale = f => p.per100[f] != null ? Math.round(p.per100[f] * p.grams / 100) : 0;
+    openScanReview([{
+      name: p.name, portion: p.servingLabel ? `1 serving = ${p.servingLabel}` : `last time: ${p.grams} g`,
+      calories: scale('calories'), proteinG: scale('proteinG'), carbG: scale('carbG'), fatG: scale('fatG'),
+      per100: p.per100, grams: p.grams, code: p.code, servingLabel: p.servingLabel
+    }], 'Saved from your last scan — adjust the grams if the portion changed.');
+  }));
 }
 
 async function openBarcodeScanner() {
@@ -1599,6 +1969,46 @@ async function openBarcodeScanner() {
     $('barcodeManualCode').focus();
     if (res.error === 'no_detector') showToast('Live scanning isn’t supported in this browser — type the number printed under the barcode instead.', 4500);
   }
+}
+
+// Past days, kept and browsable — the log grows with you instead of
+// resetting at midnight. Day rows show totals vs target; tap to unfold the
+// actual meals eaten that day.
+function renderFoodHistory() {
+  const card = $('foodHistoryCard');
+  const wrap = $('foodHistoryList');
+  const todayKey = new Date().toDateString();
+  const byDay = {};
+  (ACTIVE.history.meals || []).forEach(m => {
+    const k = new Date(m.date).toDateString();
+    if (k === todayKey) return;
+    (byDay[k] = byDay[k] || []).push(m);
+  });
+  const days = Object.entries(byDay).sort((a, b) => new Date(b[0]) - new Date(a[0])).slice(0, 7);
+  card.hidden = !days.length;
+  if (!days.length) return;
+  const target = Nutrition.dailyTarget(ACTIVE);
+  wrap.innerHTML = '';
+  days.forEach(([key, meals]) => {
+    const cal = meals.reduce((a, m) => a + m.calories, 0);
+    const pro = meals.reduce((a, m) => a + m.proteinG, 0);
+    const label = new Date(key).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const vsTarget = target ? (cal >= target.calories * 0.9 && cal <= target.calories * 1.1 ? ' 🎯' : '') : '';
+    const item = document.createElement('div');
+    item.innerHTML = `
+      <button class="scan-history-row past-workout-summary" aria-expanded="false">
+        <span>${label}</span><span>${cal.toLocaleString()} kcal · ${pro}g P${vsTarget} <span class="ms past-workout-caret">expand_more</span></span>
+      </button>
+      <div class="past-workout-detail" hidden>${meals.map(m => `<div class="past-workout-ex"><span>${m.name}</span><span>${m.calories} kcal · ${m.proteinG}g P</span></div>`).join('')}</div>`;
+    const btn = item.querySelector('button');
+    const detail = item.querySelector('.past-workout-detail');
+    btn.addEventListener('click', () => {
+      detail.hidden = !detail.hidden;
+      btn.setAttribute('aria-expanded', String(!detail.hidden));
+      item.classList.toggle('open', !detail.hidden);
+    });
+    wrap.appendChild(item);
+  });
 }
 
 async function estimateTextClick() {
@@ -1756,6 +2166,7 @@ async function sendChat() {
 function renderSettings() {
   renderSyncPanel();
   qs('#settingsUnitWeight').querySelectorAll('.unit-opt').forEach(b => b.classList.toggle('active', b.dataset.unit === ACTIVE.unitWeight));
+  qsa('#settingsLang .unit-opt').forEach(b => b.classList.toggle('active', b.dataset.lang === I18N.lang()));
   renderProfileManageList();
   renderCustomExerciseList();
   renderExcludedExerciseList();
@@ -2180,6 +2591,18 @@ function init() {
 
   $('btnTourNext').addEventListener('click', tourNext);
   $('btnTourSkip').addEventListener('click', endTour);
+  $('btnReplayTour').addEventListener('click', startTour);
+  $('btnDismissForecast').addEventListener('click', () => {
+    localStorage.setItem(FORECAST_DISMISS_KEY, new Date().toDateString()); // hides for today, back tomorrow
+    $('forecastCard').hidden = true;
+    showToast('Forecast dismissed for today.');
+  });
+  qsa('#settingsLang .unit-opt').forEach(b => b.addEventListener('click', () => {
+    I18N.setLang(b.dataset.lang);
+    qsa('#settingsLang .unit-opt').forEach(x => x.classList.toggle('active', x.dataset.lang === I18N.lang()));
+    renderDashboard(); // re-render dynamic strings that go through I18N.t
+  }));
+  I18N.apply();
 
   if (ACTIVE) {
     showView('dashboard');

@@ -713,13 +713,114 @@ a{ color: var(--accent-text); }
 }
 .scan-review-grams input:focus{ border-color: var(--accent-text); }
 
-/* ---------- first-run guided tour ---------- */
-.tour-sheet{ text-align:center; padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
-.tour-icon{ font-size:52px; margin: 6px 0 10px; animation: fadeScale .35s var(--ease-bounce) both; }
-.tour-copy{ color: var(--muted-text); font-size:15px; line-height:1.55; max-width:32ch; margin: 0 auto 16px; min-height: 4.6em; }
-.tour-dots{ display:flex; justify-content:center; gap:7px; margin-bottom:18px; }
+/* ---------- first-run spotlight tour ---------- */
+.coach-overlay{ position:fixed; inset:0; z-index:96; }
+.coach-spot{
+  position:fixed; z-index:96; pointer-events:none;
+  /* the giant shadow IS the dimmer — the spot itself stays clear, so the
+     real control shines through and visibly pulses */
+  box-shadow: 0 0 0 9999px oklch(0.13 0.015 56 / 0.66);
+  border: 2px solid oklch(0.72 0.11 58 / 0.9);
+  transition: all .45s var(--ease); opacity:0;
+  animation: coachPulse 1.6s var(--ease) infinite;
+}
+@keyframes coachPulse{ 0%,100%{ border-color: oklch(0.72 0.11 58 / 0.9);} 50%{ border-color: oklch(0.72 0.11 58 / 0.35);} }
+.coach-tip{
+  position:fixed; z-index:97; left:50%; transform:translateX(-50%);
+  width: calc(100% - 44px); max-width:360px;
+  background: var(--bg); border:1px solid var(--card-border); border-radius: var(--radius-lg);
+  padding: 18px 18px 16px; text-align:center; box-shadow: 0 18px 50px oklch(0 0 0 / 0.35);
+  /* opacity-only entrance: a transform-based animation would override the
+     inline centering translate the positioner sets */
+  animation: coachTipIn .3s var(--ease) both;
+}
+@keyframes coachTipIn{ from{ opacity:0; } to{ opacity:1; } }
+.coach-emoji{ font-size:40px; margin-bottom:6px; }
+.coach-tip h3{ margin:0 0 6px; }
+.tour-copy{ color: var(--muted-text); font-size:14.5px; line-height:1.55; margin: 0 auto 14px; }
+.tour-dots{ display:flex; justify-content:center; gap:7px; margin-bottom:14px; }
 .tour-dot{ width:7px; height:7px; border-radius:50%; background: var(--ring-track); transition: all .25s var(--ease); }
 .tour-dot.active{ background: var(--accent-text); width:20px; border-radius:999px; }
+
+/* ---------- training forecast ---------- */
+.forecast-card{ background: linear-gradient(150deg, var(--pill-olive), var(--pill-clay)); }
+.forecast-hero{ display:flex; align-items:flex-start; gap:12px; margin-bottom:12px; }
+.forecast-emoji{ font-size:40px; line-height:1; flex-shrink:0; }
+.forecast-hero p{ margin:0; font-size:14.5px; line-height:1.5; font-weight:500; }
+.forecast-chips{ display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; }
+.forecast-chip{
+  background: var(--card); border:1px solid var(--card-border); border-radius: var(--radius-sm);
+  padding:8px 4px; text-align:center; display:flex; flex-direction:column; gap:2px;
+}
+.forecast-chip span{ font-size:18px; }
+.forecast-chip b{ font-size:11.5px; }
+.forecast-chip small{ font-size:9.5px; color: var(--muted-text); }
+
+/* ---------- today checklist ---------- */
+.today-checklist{ display:flex; flex-direction:column; gap:8px; }
+.check-item{
+  display:flex; align-items:center; gap:10px; padding:10px 12px;
+  background: var(--week-bg); border-radius: var(--radius-sm);
+  transition: opacity .3s var(--ease);
+}
+.check-mark{
+  width:24px; height:24px; border-radius:50%; flex-shrink:0;
+  border:1.5px solid var(--card-border); background: var(--stepper-bg);
+  display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:#fff;
+}
+.check-item.done .check-mark{ background: var(--clay-grad); border-color:transparent; }
+.check-item.done{ opacity:0.75; }
+.check-icon{ font-size:18px; }
+.check-label{ font-size:14px; font-weight:600; display:flex; flex-direction:column; }
+.check-label small{ font-size:11.5px; font-weight:500; color: var(--muted-text); }
+
+/* ---------- trophy case ---------- */
+.badge-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; }
+.badge-tile{
+  text-align:center; padding:10px 2px; border-radius: var(--radius-sm);
+  background: var(--week-bg); display:flex; flex-direction:column; gap:2px; align-items:center;
+}
+.badge-tile .badge-icon{ font-size:24px; filter: grayscale(1); opacity:.45; }
+.badge-tile.earned .badge-icon{ filter:none; opacity:1; }
+.badge-tile .badge-label{ font-size:10px; font-weight:700; }
+.badge-tile small{ font-size:9px; color: var(--muted-text); }
+.badge-tile.earned{ background: var(--pill-clay); }
+
+/* ---------- week strip (schedule) ---------- */
+.week-strip{ display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
+.week-day-pill{
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:8px 2px; border-radius: var(--radius-sm); background: var(--week-bg);
+  border:1.5px solid transparent;
+}
+.week-day-pill .wd-letter{ font-size:10px; font-weight:700; color: var(--muted-text); text-transform:uppercase; }
+.week-day-pill .wd-mark{ font-size:13px; font-weight:700; color: var(--muted-text); }
+.week-day-pill .wd-label{ font-size:8.5px; font-weight:600; color: var(--muted-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.week-day-pill.today{ border-color: var(--choice-on-border); background: var(--choice-on); }
+.week-day-pill.done{ background: var(--pill-olive); }
+.week-day-pill.done .wd-mark{ color: var(--olive-text); }
+.week-day-pill.planned .wd-mark{ color: var(--accent-text); }
+.week-day-pill.rest{ opacity:0.6; }
+
+/* ---------- photo lightbox data overlay ---------- */
+.lightbox-photo-wrap{ position:relative; }
+.lightbox-overlay{
+  position:absolute; left:0; right:0; bottom:0; border-radius: 0 0 16px 16px;
+  padding: 26px 10px 10px; display:flex; flex-wrap:wrap; gap:6px; justify-content:center;
+  background: linear-gradient(to top, oklch(0.13 0.015 56 / 0.78), transparent);
+}
+.lightbox-chip{
+  background: oklch(0.13 0.015 56 / 0.55); color: oklch(0.96 0.012 78);
+  border:1px solid oklch(1 0 0 / 0.22); border-radius:999px; padding:4px 10px;
+  font-size:11px; font-weight:500; display:inline-flex; gap:5px; align-items:baseline;
+}
+.lightbox-chip b{ font-size:12px; }
+.lightbox-when{ background: var(--clay-grad); border-color:transparent; font-weight:700; }
+
+.week-group-head{
+  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em;
+  color: var(--accent-text); padding:10px 0 2px;
+}
 
 /* ---------- misc ---------- */
 [hidden]{ display:none !important; }
