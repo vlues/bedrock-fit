@@ -1020,7 +1020,19 @@ function positionTourStep() {
     tip.style.transform = 'translate(-50%, -50%)';
     return;
   }
-  const r = el.getBoundingClientRect();
+
+  // Page-content targets (schedule card, insight card) can start below the
+  // fold — the original bug: the spotlight landed on off-screen coordinates
+  // and the step "appeared" nowhere. Fixed chrome (nav, FAB, avatar) is
+  // always visible and must NOT be scrolled to (scrollIntoView on a fixed
+  // element can yank the page to its DOM position instead).
+  const fixedChrome = !!(el.closest('.bottomnav, .topbar') || el.classList.contains('nav-fab'));
+  let r = el.getBoundingClientRect();
+  if (!fixedChrome && (r.top < 70 || r.bottom > window.innerHeight - 110)) {
+    window.scrollTo({ top: window.scrollY + r.top - (window.innerHeight - r.height) / 2, behavior: 'auto' });
+    r = el.getBoundingClientRect();
+  }
+
   const pad = 8;
   spot.style.opacity = '1';
   spot.style.left = (r.left - pad) + 'px';
@@ -1028,7 +1040,9 @@ function positionTourStep() {
   spot.style.width = (r.width + pad * 2) + 'px';
   spot.style.height = (r.height + pad * 2) + 'px';
   spot.style.borderRadius = Math.min(28, (r.height + pad * 2) / 2) + 'px';
-  // tip above targets in the bottom half of the screen, below otherwise
+
+  // tip above targets in the bottom half, below otherwise — then clamped so
+  // it can never leave the viewport (tall targets + small screens)
   tip.style.transform = 'translateX(-50%)';
   if (r.top > window.innerHeight / 2) {
     tip.style.top = 'auto';
@@ -1037,6 +1051,11 @@ function positionTourStep() {
     tip.style.bottom = 'auto';
     tip.style.top = (r.bottom + pad + 14) + 'px';
   }
+  requestAnimationFrame(() => {
+    const t = tip.getBoundingClientRect();
+    if (t.bottom > window.innerHeight - 12) { tip.style.top = 'auto'; tip.style.bottom = '12px'; }
+    if (t.top < 12) { tip.style.bottom = 'auto'; tip.style.top = '12px'; }
+  });
 }
 
 function startTour() {
