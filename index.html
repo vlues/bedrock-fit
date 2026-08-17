@@ -272,8 +272,13 @@
   <!-- ===== WORKOUT (active session) ===== -->
   <section class="view" id="view-workout" hidden>
     <div class="page">
-      <button class="btn btn-ghost" data-close-workout>← Back to dashboard</button>
-      <h2 id="workoutTitle">Session</h2>
+      <div class="workout-header">
+        <button class="iconbtn" data-close-workout aria-label="Back to dashboard"><span class="ms">arrow_back</span></button>
+        <div class="workout-header-titles">
+          <h2 id="workoutTitle">Session</h2>
+          <p class="muted-copy" id="workoutMeta"></p>
+        </div>
+      </div>
       <div id="workoutList" class="workout-log-list"></div>
       <button class="btn btn-primary btn-block" id="btnFinishWorkout">Finish & save</button>
     </div>
@@ -299,8 +304,11 @@
           <div class="scan-silhouette">🧍</div>
           <p class="scan-tip" id="scanTip">Tip: prop your phone at chest height, about 6 feet back.</p>
         </div>
-        <input type="file" accept="image/*" capture="environment" id="scanPhotoInput" hidden>
-        <button class="btn btn-secondary btn-block" id="btnTakePhoto">Take / upload photo</button>
+        <input type="file" accept="image/*" id="scanPhotoInput" hidden>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="btnTakePhoto">📷 Take photo</button>
+          <button class="btn btn-secondary" id="btnUploadPhoto">🖼 Upload</button>
+        </div>
         <div id="scanPhotoPreview" class="scan-preview" hidden></div>
       </div>
 
@@ -444,11 +452,27 @@
 
           <div id="frequentMealChips" class="chip-row"></div>
 
-          <input type="text" id="mealName" hidden>
           <label class="field"><span>What did you eat?</span><input type="text" id="mealQuickText" placeholder="e.g. 2 eggs and toast with butter"></label>
-          <button class="btn btn-secondary btn-block" id="btnEstimateText">Estimate for me</button>
-          <input type="file" accept="image/*" capture="environment" id="foodPhotoInput" hidden>
-          <button class="btn btn-secondary btn-block" id="btnScanFood">📷 Or scan a photo</button>
+          <button class="btn btn-secondary btn-block" id="btnEstimateText">✨ Estimate for me</button>
+          <input type="file" accept="image/*" id="foodPhotoInput" hidden>
+          <div class="btn-row">
+            <button class="btn btn-secondary" id="btnScanFood">📷 Scan a photo</button>
+            <button class="btn btn-secondary" id="btnUploadFood">🖼 Upload</button>
+          </div>
+
+          <div id="scanReview" class="scan-review" hidden>
+            <div class="scan-review-head">
+              <h4>Check what Bedrock saw</h4>
+              <p class="muted-copy" id="scanReviewNote">Rough estimates — edit anything, remove what's wrong, add what's missing.</p>
+            </div>
+            <div id="scanReviewItems"></div>
+            <button class="add-set-btn" id="btnScanAddItem">+ Add an item</button>
+            <div class="scan-review-totals" id="scanReviewTotals"></div>
+            <div class="btn-row">
+              <button class="btn btn-ghost" id="btnScanCancel">Cancel</button>
+              <button class="btn btn-primary" id="btnScanLog">Log meal</button>
+            </div>
+          </div>
 
           <div class="field-row" style="margin-top:10px;">
             <label class="field"><span>Calories</span><input type="number" id="mealCalories" inputmode="numeric"></label>

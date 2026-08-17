@@ -62,14 +62,16 @@ const BedrockAPI = (() => {
     return ask({ system: systemPrompt, messages: history, maxTokens: 150 });
   }
 
-  // Vision-capable message: photo (base64 data URL) + a question
-  async function askAboutImage(dataUrl, question, systemPrompt) {
+  // Vision-capable message: photo (base64 data URL) + a question.
+  // maxTokens defaults tight for prose answers; structured callers (the
+  // itemized food scanner) pass a bigger budget so JSON doesn't get cut off.
+  async function askAboutImage(dataUrl, question, systemPrompt, maxTokens = 150) {
     const match = /^data:(image\/\w+);base64,(.*)$/.exec(dataUrl || '');
     if (!match) return { ok: false, error: 'bad_image' };
     const [, mediaType, b64] = match;
     return ask({
       system: systemPrompt,
-      maxTokens: 150,
+      maxTokens,
       messages: [{
         role: 'user',
         content: [

@@ -490,9 +490,10 @@ function shuffleWorkoutExercise(exIdx) {
   const suggested = Workout.suggestWeight(ACTIVE, replacement.id);
   ACTIVE_WORKOUT.exercises[exIdx] = {
     id: replacement.id, name: replacement.name, targetRepsMin: ex.targetRepsMin,
-    sets: ex.sets.map(() => ({ reps: suggested ? String(ex.targetRepsMin) : '', weight: suggested ? String(suggested) : '' }))
+    sets: ex.sets.map(() => ({ reps: suggested ? String(ex.targetRepsMin) : '', weight: suggested ? String(suggested) : '', done: false }))
   };
   renderWorkoutList();
+  renderWorkoutMeta();
 }
 
 // Less typing, not more: pre-fill each set with a real suggested
@@ -512,14 +513,23 @@ function startWorkout() {
         id: ex.id, name: ex.name, targetRepsMin,
         sets: Array.from({ length: ex.sets }).map(() => ({
           reps: suggested ? String(targetRepsMin) : '',
-          weight: suggested ? String(suggested) : ''
+          weight: suggested ? String(suggested) : '',
+          done: false
         }))
       };
     })
   };
   $('workoutTitle').textContent = session.label;
+  renderWorkoutMeta();
   renderWorkoutList();
   showView('workout');
+}
+
+function renderWorkoutMeta() {
+  if (!ACTIVE_WORKOUT) return;
+  const totalSets = ACTIVE_WORKOUT.exercises.reduce((a, ex) => a + ex.sets.length, 0);
+  const doneSets = ACTIVE_WORKOUT.exercises.reduce((a, ex) => a + ex.sets.filter(s => s.done).length, 0);
+  $('workoutMeta').textContent = `${ACTIVE_WORKOUT.exercises.length} exercises · ${doneSets}/${totalSets} sets done`;
 }
 
 function renderWorkoutList() {
@@ -554,8 +564,9 @@ function renderWorkoutList() {
     item.querySelector('.equip-note').addEventListener('input', e => { ex.equipmentNote = e.target.value; });
     const repeatBtn = item.querySelector('[data-repeatlast]');
     if (repeatBtn) repeatBtn.addEventListener('click', () => {
-      ex.sets = lastLogged.sets.map(s => ({ reps: String(s.reps), weight: String(s.weight) }));
+      ex.sets = lastLogged.sets.map(s => ({ reps: String(s.reps), weight: String(s.weight), done: false }));
       renderSetRows(exIdx);
+      renderWorkoutMeta();
     });
     const formToggle = item.querySelector('[data-formtoggle]');
     if (formToggle) formToggle.addEventListener('click', () => {
@@ -565,8 +576,9 @@ function renderWorkoutList() {
     });
     renderSetRows(exIdx);
     item.querySelector('.add-set-btn').addEventListener('click', () => {
-      ACTIVE_WORKOUT.exercises[exIdx].sets.push({ reps: '', weight: '' });
+      ACTIVE_WORKOUT.exercises[exIdx].sets.push({ reps: '', weight: '', done: false });
       renderSetRows(exIdx);
+      renderWorkoutMeta();
     });
   });
 }
@@ -577,27 +589,31 @@ function renderSetRows(exIdx) {
   wrap.innerHTML = '';
   ex.sets.forEach((s, sIdx) => {
     const row = document.createElement('div');
-    row.className = 'set-row';
+    row.className = 'set-row' + (s.done ? ' set-done' : '');
     row.innerHTML = `
       <span>#${sIdx + 1}</span>
       <input type="number" inputmode="decimal" placeholder="lb" value="${s.weight}" data-field="weight">
       <input type="number" inputmode="numeric" placeholder="reps" value="${s.reps}" data-field="reps">
+      <button class="set-check${s.done ? ' checked' : ''}" aria-label="Mark set ${sIdx + 1} done" aria-pressed="${s.done}"><span class="ms">check</span></button>
     `;
     row.querySelectorAll('input').forEach(inp => {
       inp.addEventListener('input', () => {
         ex.sets[sIdx][inp.dataset.field] = inp.value;
       });
-      // Rest timer starts itself the moment a set looks "done" (both fields
-      // filled) — no extra tap needed. It's a plain dismissible banner, not
-      // a lock screen, so it never gets in the way if the user just keeps
-      // going without it.
-      inp.addEventListener('blur', () => {
-        if (row.dataset.rested) return;
-        if (ex.sets[sIdx].weight !== '' && ex.sets[sIdx].reps !== '') {
-          row.dataset.rested = '1';
-          startRestTimer(Workout.restSecondsFor(ACTIVE.goal));
-        }
-      });
+    });
+    // Explicit ✓ per set: only checked sets count as performed, and the rest
+    // timer starts on the tap. The old behavior (any pre-filled set counted,
+    // and the timer fired just from focusing in and out of a field) meant a
+    // whole untouched workout could get "logged" by tapping Finish.
+    row.querySelector('.set-check').addEventListener('click', () => {
+      if (!s.done && (s.weight === '' || s.reps === '')) { showToast('Fill in weight and reps first.'); return; }
+      s.done = !s.done;
+      row.classList.toggle('set-done', s.done);
+      row.querySelector('.set-check').classList.toggle('checked', s.done);
+      row.querySelector('.set-check').setAttribute('aria-pressed', String(s.done));
+      renderWorkoutMeta();
+      if (s.done) startRestTimer(Workout.restSecondsFor(ACTIVE.goal));
+      else skipRestTimer();
     });
     wrap.appendChild(row);
   });
@@ -644,6 +660,17 @@ function addRestTime(sec) {
   renderRestTimer();
 }
 
+// Small non-blocking notice, reusing the PR toast chrome — alert() freezes
+// the whole page and looks like a system error; this doesn't.
+function showToast(text, ms = 3200) {
+  const toast = $('prToast');
+  if (!toast) return;
+  toast.innerHTML = `<p>${text}</p>`;
+  toast.hidden = false;
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => { toast.hidden = true; }, ms);
+}
+
 // Celebrates real, data-verified wins (a beaten prior best, a maintained
 // streak) — never fabricated hype. Auto-dismisses; tap to close early.
 function showPRToast(prs, streak) {
@@ -661,13 +688,23 @@ function showPRToast(prs, streak) {
 
 function finishWorkout() {
   if (!ACTIVE_WORKOUT) return;
+  const anyDone = ACTIVE_WORKOUT.exercises.some(ex => ex.sets.some(s => s.done));
+  // Only ✓-checked sets are saved — pre-filled suggestions the user never
+  // touched must not become history (they'd fake PRs and volume). If nothing
+  // was checked at all, offer the old behavior once rather than losing work.
+  if (!anyDone) {
+    const anyFilled = ACTIVE_WORKOUT.exercises.some(ex => ex.sets.some(s => s.reps !== '' && s.weight !== ''));
+    if (!anyFilled) { showToast('Nothing logged yet — check off a set first.'); return; }
+    if (!confirm('No sets are checked off (✓). Save all filled-in sets as done?')) return;
+    ACTIVE_WORKOUT.exercises.forEach(ex => ex.sets.forEach(s => { if (s.reps !== '' && s.weight !== '') s.done = true; }));
+  }
   skipRestTimer();
   const cleaned = {
     ...ACTIVE_WORKOUT,
     exercises: ACTIVE_WORKOUT.exercises.map(ex => ({
       ...ex,
-      sets: ex.sets.filter(s => s.reps !== '' && s.weight !== '')
-    }))
+      sets: ex.sets.filter(s => s.done && s.reps !== '' && s.weight !== '').map(s => ({ reps: s.reps, weight: s.weight }))
+    })).filter(ex => ex.sets.length)
   };
   // Diff against history BEFORE this session is pushed in, so "PR" means
   // you actually beat your own prior best — not just that you typed a number.
@@ -808,14 +845,46 @@ function drawFitbitTrendChart() {
 // since Fitbit entries don't carry set/rep data the same way.
 function renderPastWorkouts() {
   const wrap = $('pastWorkoutsList');
-  const list = (ACTIVE.history.workouts || []).slice().sort((a, b) => b.date - a.date).slice(0, 10);
+  wrap.innerHTML = '';
+  const list = (ACTIVE.history.workouts || []).slice().sort((a, b) => b.date - a.date).slice(0, 15);
   if (!list.length) { wrap.innerHTML = '<p class="muted-copy">No sessions logged yet.</p>'; return; }
-  wrap.innerHTML = list.map(w => {
-    const d = new Date(w.date).toLocaleDateString();
+  list.forEach(w => {
+    const d = new Date(w.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     const vol = (w.exercises || []).reduce((a, ex) => a + (ex.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
     const detail = w.source === 'fitbit' ? '⌚ Fitbit' : (vol ? `${Math.round(vol).toLocaleString()} lb·reps` : `${(w.exercises || []).length} exercise${(w.exercises || []).length === 1 ? '' : 's'}`);
-    return `<div class="scan-history-row"><span>${d} — ${w.label || 'Session'}</span><span>${detail}</span></div>`;
-  }).join('');
+    const item = document.createElement('div');
+    item.className = 'past-workout';
+    item.innerHTML = `
+      <button class="scan-history-row past-workout-summary" aria-expanded="false">
+        <span>${d} — ${w.label || 'Session'}</span><span>${detail} <span class="ms past-workout-caret">expand_more</span></span>
+      </button>
+      <div class="past-workout-detail" hidden></div>`;
+    const summaryBtn = item.querySelector('.past-workout-summary');
+    const detailEl = item.querySelector('.past-workout-detail');
+    summaryBtn.addEventListener('click', () => {
+      const opening = detailEl.hidden;
+      // Built lazily on first open — most rows never get expanded.
+      if (opening && !detailEl.dataset.built) {
+        const lines = (w.exercises || []).map(ex => {
+          const sets = (ex.sets || []).map(s => `${displayWeight(Number(s.weight))} × ${s.reps}`).join(', ');
+          return `<div class="past-workout-ex"><span>${ex.name}</span><span>${sets || '—'}</span></div>`;
+        }).join('') || '<p class="muted-copy">No set detail on this session.</p>';
+        detailEl.innerHTML = lines + `<button class="btn btn-ghost btn-block danger" style="margin-top:6px;">Delete this session</button>`;
+        detailEl.querySelector('.danger').addEventListener('click', () => {
+          if (!confirm(`Delete the ${d} session? This removes it from your charts and PRs too.`)) return;
+          ACTIVE.history.workouts = (ACTIVE.history.workouts || []).filter(x => x !== w && x.date !== w.date);
+          saveActive();
+          renderProgress();
+          showToast('Session deleted.');
+        });
+        detailEl.dataset.built = '1';
+      }
+      detailEl.hidden = !opening;
+      summaryBtn.setAttribute('aria-expanded', String(opening));
+      item.classList.toggle('open', opening);
+    });
+    wrap.appendChild(item);
+  });
 }
 
 function drawMuscleChart() {
@@ -1118,8 +1187,14 @@ function renderNutrition() {
   mealWrap.innerHTML = '';
   Nutrition.todayMeals(ACTIVE).slice().reverse().forEach(m => {
     const row = document.createElement('div');
-    row.className = 'scan-history-row';
-    row.innerHTML = `<span>${m.name}${m.aiEstimated ? ' 🤖' : ''}</span><span>${m.calories} kcal / ${m.proteinG}g</span>`;
+    row.className = 'scan-history-row meal-row';
+    row.innerHTML = `<span>${m.name}${m.aiEstimated ? ' 🤖' : ''}</span><span class="meal-row-right">${m.calories} kcal / ${m.proteinG}g<button class="meal-remove" aria-label="Remove ${m.name}">✕</button></span>`;
+    row.querySelector('.meal-remove').addEventListener('click', () => {
+      Nutrition.removeMeal(ACTIVE, m.id);
+      Sync.pushDebounced(ACTIVE);
+      renderNutrition();
+      showToast(`Removed ${m.name}.`);
+    });
     mealWrap.appendChild(row);
   });
 
@@ -1129,24 +1204,98 @@ function renderNutrition() {
   chipWrap.querySelectorAll('[data-quicklog]').forEach(btn => btn.addEventListener('click', () => {
     const m = JSON.parse(btn.dataset.quicklog.replace(/&#39;/g, "'"));
     Nutrition.addMeal(ACTIVE, m);
+    Sync.pushDebounced(ACTIVE);
     renderNutrition();
+    showToast(`Logged ${m.name} ✓`);
   }));
+}
+
+/* --- Scan review: the editable itemized sheet both estimate paths land in.
+   Nothing is logged until the user has seen every item, fixed what's wrong,
+   removed what isn't theirs, and added what the model missed. --- */
+let SCAN_REVIEW = null; // { items: [...], note }
+
+function openScanReview(items, note) {
+  SCAN_REVIEW = { items, note };
+  $('scanReviewNote').textContent = (note ? note + ' ' : '') + 'Edit anything, remove what’s wrong, add what’s missing.';
+  renderScanReview();
+  $('scanReview').hidden = false;
+  $('scanReview').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function closeScanReview() {
+  SCAN_REVIEW = null;
+  $('scanReview').hidden = true;
+  $('scanReviewItems').innerHTML = '';
+}
+
+function renderScanReview() {
+  const wrap = $('scanReviewItems');
+  wrap.innerHTML = '';
+  SCAN_REVIEW.items.forEach((it, idx) => {
+    const row = document.createElement('div');
+    row.className = 'scan-review-item';
+    row.innerHTML = `
+      <div class="scan-review-item-top">
+        <input type="text" value="${it.name.replace(/"/g, '&quot;')}" placeholder="Food" data-f="name" aria-label="Food name">
+        <button class="meal-remove" data-remove aria-label="Remove item">✕</button>
+      </div>
+      ${it.portion ? `<p class="muted-copy scan-review-portion">~${it.portion}</p>` : ''}
+      <div class="scan-review-item-nums">
+        <label>kcal<input type="number" inputmode="numeric" value="${it.calories || ''}" data-f="calories"></label>
+        <label>protein g<input type="number" inputmode="numeric" value="${it.proteinG || ''}" data-f="proteinG"></label>
+      </div>`;
+    row.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+      it[inp.dataset.f] = inp.value;
+      renderScanReviewTotals();
+    }));
+    row.querySelector('[data-remove]').addEventListener('click', () => {
+      SCAN_REVIEW.items.splice(idx, 1);
+      renderScanReview();
+    });
+    wrap.appendChild(row);
+  });
+  renderScanReviewTotals();
+}
+
+function renderScanReviewTotals() {
+  const totals = SCAN_REVIEW.items.reduce((a, it) => ({
+    calories: a.calories + (Number(it.calories) || 0),
+    proteinG: a.proteinG + (Number(it.proteinG) || 0)
+  }), { calories: 0, proteinG: 0 });
+  $('scanReviewTotals').textContent = SCAN_REVIEW.items.length
+    ? `Total: ~${totals.calories} kcal · ~${totals.proteinG}g protein`
+    : 'No items — add one, or cancel.';
+}
+
+function scanReviewAddItem() {
+  SCAN_REVIEW.items.push({ name: '', portion: '', calories: 0, proteinG: 0, carbG: 0, fatG: 0 });
+  renderScanReview();
+  const rows = $('scanReviewItems').querySelectorAll('.scan-review-item input[data-f="name"]');
+  if (rows.length) rows[rows.length - 1].focus();
+}
+
+function scanReviewLog() {
+  const items = SCAN_REVIEW.items.filter(it => (it.name || '').trim() && (Number(it.calories) || Number(it.proteinG)));
+  if (!items.length) { showToast('Nothing to log — every item needs a name and a number.'); return; }
+  items.forEach(it => Nutrition.addMeal(ACTIVE, { ...it, name: it.name.trim(), aiEstimated: true }));
+  Sync.pushDebounced(ACTIVE);
+  closeScanReview();
+  $('mealQuickText').value = '';
+  renderNutrition();
+  showToast(`Logged ${items.length} item${items.length === 1 ? '' : 's'} ✓`);
 }
 
 async function estimateTextClick() {
   const text = $('mealQuickText').value.trim();
-  if (!text) return;
-  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first — or just fill in calories/protein by hand below.'); return; }
-  $('mealName').value = 'Estimating…';
+  if (!text) { showToast('Type what you ate first.'); return; }
+  if (!Sync.isLoggedIn()) { showToast('Sign in under Settings → Sync first — or fill in calories/protein by hand below.'); return; }
+  const btn = $('btnEstimateText');
+  btn.disabled = true; btn.textContent = 'Estimating…';
   const res = await Nutrition.estimateFromText(text);
-  if (res.ok) {
-    $('mealName').value = res.name;
-    $('mealCalories').value = res.calories;
-    $('mealProtein').value = res.proteinG;
-  } else {
-    $('mealName').value = text;
-    alert('Couldn’t reach Bedrock — fill in calories/protein by hand, or check you’re signed in under Settings → Sync.');
-  }
+  btn.disabled = false; btn.textContent = '✨ Estimate for me';
+  if (res.ok) openScanReview(res.items, res.note);
+  else showToast('Couldn’t reach Bedrock — fill in calories/protein by hand, or check Settings → Sync.');
 }
 
 function addWater(delta) {
@@ -1155,27 +1304,24 @@ function addWater(delta) {
 }
 
 function addMealFromForm() {
-  const name = $('mealName').value.trim() || $('mealQuickText').value.trim();
+  const name = $('mealQuickText').value.trim();
   const calories = $('mealCalories').value, proteinG = $('mealProtein').value;
-  if (!name || (!calories && !proteinG)) { alert('Add a food name and at least calories or protein.'); return; }
-  Nutrition.addMeal(ACTIVE, { name, calories, proteinG, aiEstimated: !!$('mealName').value.trim() && $('mealName').value !== $('mealQuickText').value });
-  $('mealName').value = ''; $('mealQuickText').value = ''; $('mealCalories').value = ''; $('mealProtein').value = '';
+  if (!name || (!calories && !proteinG)) { showToast('Add a food name and at least calories or protein.'); return; }
+  Nutrition.addMeal(ACTIVE, { name, calories, proteinG, aiEstimated: false });
+  Sync.pushDebounced(ACTIVE);
+  $('mealQuickText').value = ''; $('mealCalories').value = ''; $('mealProtein').value = '';
   renderNutrition();
+  showToast(`Logged ${name} ✓`);
 }
 
 async function scanFoodDataUrl(dataUrl) {
-  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
-  $('mealName').value = 'Scanning…';
+  if (!Sync.isLoggedIn()) { showToast('Sign in under Settings → Sync first.'); return; }
+  const btn = $('btnScanFood');
+  btn.disabled = true; btn.textContent = 'Scanning…';
   const res = await Nutrition.estimateFoodPhoto(dataUrl);
-  if (res.ok) {
-    $('mealName').value = res.name;
-    $('mealCalories').value = res.calories;
-    $('mealProtein').value = res.proteinG;
-    alert(res.note + ' Edit the numbers if they look off, then tap Log it.');
-  } else {
-    $('mealName').value = '';
-    alert('Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.');
-  }
+  btn.disabled = false; btn.textContent = '📷 Scan a photo';
+  if (res.ok) openScanReview(res.items, res.note);
+  else showToast('Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.');
 }
 
 async function scanFoodPhoto(file) {
@@ -1567,7 +1713,13 @@ function init() {
 
   $('btnStartWorkout').addEventListener('click', startWorkout);
   $('navFab').addEventListener('click', startWorkout);
-  qs('[data-close-workout]').addEventListener('click', () => { skipRestTimer(); ACTIVE_WORKOUT = null; showView('dashboard'); renderDashboard(); });
+  qs('[data-close-workout]').addEventListener('click', () => {
+    // Leaving mid-session throws the whole log away — worth one question if
+    // real sets have been checked off, silent if nothing's been done yet.
+    const hasProgress = ACTIVE_WORKOUT && ACTIVE_WORKOUT.exercises.some(ex => ex.sets.some(s => s.done));
+    if (hasProgress && !confirm('Leave without saving? Checked-off sets will be lost — use "Finish & save" to keep them.')) return;
+    skipRestTimer(); ACTIVE_WORKOUT = null; showView('dashboard'); renderDashboard();
+  });
   $('btnFinishWorkout').addEventListener('click', finishWorkout);
   $('btnRestSkip').addEventListener('click', skipRestTimer);
   $('btnRestAdd30').addEventListener('click', () => addRestTime(30));
@@ -1578,7 +1730,8 @@ function init() {
   $('tileProgress').addEventListener('click', () => { showView('progress'); renderProgress(); });
   qs('[data-close-progress]').addEventListener('click', () => showView('dashboard'));
   $('btnTakePhoto').addEventListener('click', openBodyScanCamera);
-  $('scanPhotoInput').addEventListener('change', e => { if (e.target.files[0]) handlePhotoSelected(e.target.files[0]); });
+  $('btnUploadPhoto').addEventListener('click', () => $('scanPhotoInput').click());
+  $('scanPhotoInput').addEventListener('change', e => { if (e.target.files[0]) handlePhotoSelected(e.target.files[0]); e.target.value = ''; });
   Camera.wire();
   $('btnSaveScan').addEventListener('click', saveScan);
   $('btnAskAiScan').addEventListener('click', askAiAboutScan);
@@ -1596,8 +1749,12 @@ function init() {
   qsa('[data-water]').forEach(btn => btn.addEventListener('click', () => addWater(Number(btn.dataset.water))));
   $('btnAddMeal').addEventListener('click', addMealFromForm);
   $('btnScanFood').addEventListener('click', openFoodScanCamera);
-  $('foodPhotoInput').addEventListener('change', e => { if (e.target.files[0]) scanFoodPhoto(e.target.files[0]); });
+  $('btnUploadFood').addEventListener('click', () => $('foodPhotoInput').click());
+  $('foodPhotoInput').addEventListener('change', e => { if (e.target.files[0]) scanFoodPhoto(e.target.files[0]); e.target.value = ''; });
   $('btnEstimateText').addEventListener('click', estimateTextClick);
+  $('btnScanAddItem').addEventListener('click', scanReviewAddItem);
+  $('btnScanCancel').addEventListener('click', closeScanReview);
+  $('btnScanLog').addEventListener('click', scanReviewLog);
   $('btnSuggestMeal').addEventListener('click', suggestMealClick);
 
   $('btnOpenGuide').addEventListener('click', () => showView('guide'));

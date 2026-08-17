@@ -55,14 +55,22 @@ const Nutrition = (() => {
 
   function addMeal(profile, meal) {
     profile.history.meals.push({
-      id: 'm_' + Date.now().toString(36),
+      id: 'm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
       date: Date.now(),
       name: meal.name || 'Meal',
       calories: Number(meal.calories) || 0,
       proteinG: Number(meal.proteinG) || 0,
+      carbG: meal.carbG != null ? Number(meal.carbG) || 0 : null,
+      fatG: meal.fatG != null ? Number(meal.fatG) || 0 : null,
       photo: meal.photo || null,
       aiEstimated: !!meal.aiEstimated
     });
+    Store.upsertProfile(profile);
+  }
+  // Logged the wrong thing, or the scan was off? One tap undoes it — a food
+  // log you can't correct just teaches people to stop logging.
+  function removeMeal(profile, mealId) {
+    profile.history.meals = (profile.history.meals || []).filter(m => m.id !== mealId);
     Store.upsertProfile(profile);
   }
   function todayMeals(profile) {
@@ -73,22 +81,48 @@ const Nutrition = (() => {
     return meals.reduce((a, m) => ({ calories: a.calories + m.calories, proteinG: a.proteinG + m.proteinG }), { calories: 0, proteinG: 0 });
   }
 
+  // Both estimate paths (photo + text) return the same shape: an itemized
+  // list of foods with per-item numbers, so the UI can show a review sheet
+  // where each item is editable/removable before anything is logged —
+  // instead of one opaque total the user has to take or leave.
+  const ITEMIZE_SYS = 'You itemize food for casual calorie tracking. Estimates are rough, never precise, and the note must say so honestly. Respond with ONLY a JSON object, no markdown fences, no prose, exactly this shape: {"items":[{"name":"short food name","portion":"rough portion e.g. 1 cup","calories":320,"proteinG":12,"carbG":30,"fatG":14}],"note":"one short honest caveat about accuracy"} — one entry per distinct food you can identify, whole numbers only.';
+
+  function parseItemized(text, fallbackName) {
+    try {
+      const start = text.indexOf('{'), end = text.lastIndexOf('}');
+      if (start === -1 || end <= start) throw new Error('no json');
+      const data = JSON.parse(text.slice(start, end + 1));
+      const items = (data.items || [])
+        .map(it => ({
+          name: String(it.name || 'Food').slice(0, 60),
+          portion: it.portion ? String(it.portion).slice(0, 40) : '',
+          calories: Math.max(0, Math.round(Number(it.calories) || 0)),
+          proteinG: Math.max(0, Math.round(Number(it.proteinG) || 0)),
+          carbG: Math.max(0, Math.round(Number(it.carbG) || 0)),
+          fatG: Math.max(0, Math.round(Number(it.fatG) || 0))
+        }))
+        .filter(it => it.name && (it.calories || it.proteinG));
+      if (!items.length) throw new Error('no items');
+      return { ok: true, items, note: String(data.note || 'Rough estimates only.').slice(0, 160) };
+    } catch (e) {
+      // Model went off-script — hand back one editable blank item rather
+      // than failing, so the user can still finish the log by hand.
+      return { ok: true, items: [{ name: fallbackName || 'Food', portion: '', calories: 0, proteinG: 0, carbG: 0, fatG: 0 }], note: 'Couldn’t read the estimate — fill the numbers in yourself.' };
+    }
+  }
+
   // Type what you ate in plain language ("two eggs and toast with butter")
-  // and get calories/protein filled in for you — the same one-tap-to-log
-  // feel as the photo scanner, without needing the camera.
+  // and get an itemized, editable estimate — same review flow as the photo
+  // scanner, without needing the camera.
   async function estimateFromText(description) {
     if (!Sync.isLoggedIn()) return { ok: false, error: 'not_signed_in' };
-    const sys = 'You estimate rough calorie/protein content of a described meal for casual tracking. This is NOT precise and you must say so. Respond in EXACTLY this format, nothing else:\nNAME: <short food name>\nCALORIES: <number>\nPROTEIN: <number>\nNOTE: <one short honest caveat about estimate accuracy>';
-    const res = await BedrockAPI.chat([{ role: 'user', content: `Estimate the calories and protein of: ${description}` }], sys);
+    const res = await BedrockAPI.ask({
+      system: ITEMIZE_SYS,
+      messages: [{ role: 'user', content: `Itemize and estimate this meal: ${description}` }],
+      maxTokens: 600
+    });
     if (!res.ok) return res;
-    const get = (label) => { const m = new RegExp(label + ':\\s*(.+)').exec(res.text); return m ? m[1].trim() : ''; };
-    return {
-      ok: true,
-      name: get('NAME') || description,
-      calories: parseInt(get('CALORIES')) || 0,
-      proteinG: parseInt(get('PROTEIN')) || 0,
-      note: get('NOTE') || 'Rough estimate only.'
-    };
+    return parseItemized(res.text, description);
   }
 
   // Meals logged often enough to be worth a one-tap re-add — this is what
@@ -122,17 +156,9 @@ const Nutrition = (() => {
 
   async function estimateFoodPhoto(dataUrl) {
     if (!Sync.isLoggedIn()) return { ok: false, error: 'not_signed_in' };
-    const sys = 'You estimate rough calorie/protein content of food photos for casual tracking. This is NOT precise and you must say so. Respond in EXACTLY this format, nothing else:\nNAME: <short food name>\nCALORIES: <number>\nPROTEIN: <number>\nNOTE: <one short honest caveat about estimate accuracy>';
-    const res = await BedrockAPI.askAboutImage(dataUrl, 'Estimate the calories and protein of this food.', sys);
+    const res = await BedrockAPI.askAboutImage(dataUrl, 'Itemize every distinct food you can see in this photo and estimate each one.', ITEMIZE_SYS, 600);
     if (!res.ok) return res;
-    const get = (label) => { const m = new RegExp(label + ':\\s*(.+)').exec(res.text); return m ? m[1].trim() : ''; };
-    return {
-      ok: true,
-      name: get('NAME') || 'Food',
-      calories: parseInt(get('CALORIES')) || 0,
-      proteinG: parseInt(get('PROTEIN')) || 0,
-      note: get('NOTE') || 'Rough estimate only.'
-    };
+    return parseItemized(res.text, 'Food');
   }
 
   function recentMealSummary(profile, days = 3) {
@@ -154,7 +180,7 @@ const Nutrition = (() => {
   }
 
   return {
-    bmr, dailyTarget, waterTargetMl, logWater, todayWaterMl, addMeal, todayMeals, todayTotals,
+    bmr, dailyTarget, waterTargetMl, logWater, todayWaterMl, addMeal, removeMeal, todayMeals, todayTotals,
     estimateFoodPhoto, estimateFromText, frequentMeals, remainingToday, recentMealSummary, suggestMeal
   };
 })();

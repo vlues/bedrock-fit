@@ -144,7 +144,7 @@ body{
   margin: 0 auto;
   min-height: 100vh;
   position: relative;
-  padding-bottom: 84px;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   background: var(--bg);
 }
 
@@ -329,13 +329,16 @@ a{ color: var(--accent-text); }
 .set-row{ display:flex; gap:8px; align-items:center; margin-bottom:6px; }
 .set-row span{ width:24px; flex-shrink:0; font-size:13px; font-weight:600; color: var(--muted-text); }
 .set-row input{
-  flex:1; padding:10px 10px; border-radius:12px; border:1px solid var(--card-border);
-  background: var(--stepper-bg); font-size:15px; font-weight:600; text-align:center; color:var(--text);
+  flex:1; min-width:0; padding:10px 10px; border-radius:12px; border:1px solid var(--card-border);
+  background: var(--stepper-bg); font-size:16px; font-weight:600; text-align:center; color:var(--text);
 }
 .set-row input:focus{ outline:none; border-color: var(--accent-text); }
-.equip-note{ width:100%; padding:9px 10px; border-radius:12px; border:1px solid var(--card-border); background: var(--stepper-bg); color:var(--text); font-size:12px; margin-bottom:8px; }
+/* 16px floor on every text input: anything smaller makes iOS Safari zoom the
+   whole page in when the field gets focus, which is the single biggest
+   "feels broken on iPhone" trigger in a form-heavy app. */
+.equip-note{ width:100%; padding:9px 10px; border-radius:12px; border:1px solid var(--card-border); background: var(--stepper-bg); color:var(--text); font-size:16px; margin-bottom:8px; }
 .equip-note:focus{ outline:none; border-color: var(--accent-text); }
-.form-toggle{ background:none; border:none; color: var(--olive-text); font-size:12px; font-weight:600; padding:0; margin-bottom:6px; cursor:pointer; }
+.form-toggle{ background:none; border:none; color: var(--olive-text); font-size:12px; font-weight:600; padding:0; margin:0 16px 8px 0; cursor:pointer; }
 .form-cue{ background: var(--week-bg); border-radius: var(--radius-sm); padding:12px; margin-bottom:8px; }
 .form-demo-link{ display:inline-block; font-size:12px; font-weight:600; color: var(--accent-text); text-decoration:none; margin-top:4px; }
 .add-set-btn{ background:none; border: 1.5px dashed var(--card-border); border-radius:12px; padding:9px; width:100%; color: var(--muted-text); font-size:13px; font-weight:600; cursor:pointer; margin-top:4px; }
@@ -393,7 +396,7 @@ a{ color: var(--accent-text); }
 .chat-input-row input{
   flex:1; padding:14px 18px; border-radius:999px; border:1px solid var(--card-border);
   background: var(--card); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  color: var(--text); font-size:14.5px; outline:none;
+  color: var(--text); font-size:16px; outline:none;
 }
 .chat-input-row input:focus{ border-color: var(--accent-text); }
 .chat-input-row .btn{ border-radius:999px; padding:13px 20px; }
@@ -415,10 +418,15 @@ a{ color: var(--accent-text); }
      toast. It used to reuse the theme tokens directly, which flip in dark
      mode — text/bg tokens swap meaning, so the "always dark" bar became a
      bright light-mode-colored bar sitting in the middle of a dark UI. */
-  position: sticky; bottom: 0; left: 0; right: 0; z-index: 20; margin-top: 10px;
+  /* Fixed, not sticky: as a sticky element at the end of its section it only
+     appeared once you scrolled to the bottom of the page — i.e. the timer
+     auto-started after a set and was invisible. Fixed keeps it floating above
+     the content wherever you are. */
+  position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  width: calc(100% - 36px); max-width: 444px; z-index: 40;
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   background: oklch(0.22 0.02 58); color: oklch(0.96 0.012 78); border-radius: var(--radius-md);
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  padding: 12px 16px;
   box-shadow: 0 8px 24px oklch(0 0 0 / 0.35); animation: fadein .2s var(--ease);
 }
 .rest-timer-bar #restTimerLabel{ font-weight:700; font-size:14px; letter-spacing:.2px; }
@@ -526,7 +534,10 @@ a{ color: var(--accent-text); }
 
 /* ---------- bottom nav: floating glass pill + center FAB ---------- */
 .bottomnav{
-  position: fixed; left:50%; bottom:26px; transform: translateX(-50%);
+  /* Home-indicator aware: on iPhones the 34px bottom inset used to leave the
+     pill overlapping the swipe bar; env() lifts it clear, falls back to the
+     old 26px everywhere else. */
+  position: fixed; left:50%; bottom: calc(16px + env(safe-area-inset-bottom, 10px)); transform: translateX(-50%);
   width: calc(100% - 36px); max-width:444px; height:64px;
   display:flex; align-items:center; justify-content:space-between;
   background: var(--nav-bg); backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8);
@@ -546,7 +557,7 @@ a{ color: var(--accent-text); }
 .navbtn:active{ transform: scale(0.88); }
 .nav-fab-spacer{ width:58px; flex-shrink:0; }
 .nav-fab{
-  position: fixed; left:50%; bottom:47px; transform: translateX(-50%);
+  position: fixed; left:50%; bottom: calc(37px + env(safe-area-inset-bottom, 10px)); transform: translateX(-50%);
   width:60px; height:60px; border-radius:50%; z-index:31;
   background: var(--clay-grad); border: 1px solid oklch(1 0 0 / 0.4); color:#fff;
   display:grid; place-items:center; cursor:pointer;
@@ -556,10 +567,89 @@ a{ color: var(--accent-text); }
 .nav-fab:active{ transform: translateX(-50%) scale(0.9); }
 .nav-fab .ms{ font-size:27px; }
 
+/* ---------- workout screen (gym mode) ---------- */
+.workout-header{ display:flex; align-items:center; gap:12px; margin: 2px 0 6px; }
+.workout-header .iconbtn{ flex-shrink:0; width:38px; height:38px; }
+.workout-header-titles h2{ margin:0; }
+.workout-header-titles .muted-copy{ margin:2px 0 0; font-size:13px; }
+.set-check{
+  flex-shrink:0; width:40px; height:40px; border-radius:12px; cursor:pointer;
+  border:1.5px solid var(--card-border); background: var(--stepper-bg); color: var(--muted-text);
+  display:flex; align-items:center; justify-content:center;
+  transition: all .25s var(--ease-bounce);
+}
+.set-check .ms{ font-size:20px; }
+.set-check:active{ transform: scale(0.88); }
+.set-check.checked{ background: var(--clay-grad); border-color: transparent; color:#fff; box-shadow: 0 4px 12px var(--clay-grad-shadow); }
+.set-row.set-done input{ opacity:0.55; }
+.set-row.set-done span{ color: var(--olive-text); }
+
+/* ---------- food scan review (itemized, editable) ---------- */
+.scan-review{ background: var(--week-bg); border:1px solid var(--card-border); border-radius: var(--radius-md); padding:14px; margin-top:12px; animation: fadeScale .3s var(--ease) both; }
+.scan-review-head h4{ margin:0 0 4px; font-size:14px; font-weight:600; }
+.scan-review-head .muted-copy{ margin:0 0 10px; font-size:12.5px; }
+.scan-review-item{ background: var(--card); border:1px solid var(--card-border); border-radius: var(--radius-sm); padding:10px 12px; margin-bottom:8px; animation: fadein .25s var(--ease) both; }
+.scan-review-item-top{ display:flex; align-items:center; gap:8px; }
+.scan-review-item-top input{
+  flex:1; min-width:0; border:none; background:transparent; color: var(--text);
+  font-size:16px; font-weight:600; padding:4px 0; outline:none;
+}
+.scan-review-portion{ margin:2px 0 0; font-size:12px; }
+.scan-review-item-nums{ display:flex; gap:10px; margin-top:8px; }
+.scan-review-item-nums label{
+  flex:1; display:flex; flex-direction:column; gap:3px;
+  font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color: var(--muted-text);
+}
+.scan-review-item-nums input{
+  width:100%; padding:8px 10px; border-radius:10px; border:1px solid var(--card-border);
+  background: var(--stepper-bg); color: var(--text); font-size:16px; font-weight:600; text-align:center; outline:none;
+}
+.scan-review-item-nums input:focus{ border-color: var(--accent-text); }
+.scan-review-totals{ font-size:13px; font-weight:600; color: var(--accent-text); padding:10px 2px 4px; }
+
+/* ---------- meal list rows (removable) ---------- */
+.meal-row-right{ display:flex; align-items:center; gap:8px; }
+.meal-remove{
+  flex-shrink:0; width:26px; height:26px; border-radius:50%; border:none; cursor:pointer;
+  background: var(--stepper-bg); color: var(--muted-text); font-size:12px; line-height:1;
+  display:flex; align-items:center; justify-content:center;
+  transition: transform .2s var(--ease);
+}
+.meal-remove:active{ transform: scale(0.85); }
+
+/* ---------- past workouts (expandable log) ---------- */
+.past-workout-summary{
+  width:100%; background:none; border:none; cursor:pointer; text-align:left;
+  font: inherit; color: var(--muted-text); align-items:center;
+}
+.past-workout-caret{ font-size:16px; vertical-align:middle; transition: transform .25s var(--ease); }
+.past-workout.open .past-workout-caret{ transform: rotate(180deg); }
+.past-workout-detail{ padding: 4px 0 10px; border-bottom:1px solid var(--hairline); animation: fadein .25s var(--ease) both; }
+.past-workout-ex{ display:flex; justify-content:space-between; gap:12px; font-size:12.5px; padding:5px 0; }
+.past-workout-ex span:first-child{ font-weight:600; color: var(--text); flex-shrink:0; }
+.past-workout-ex span:last-child{ color: var(--muted-text); text-align:right; }
+
 /* ---------- misc ---------- */
 [hidden]{ display:none !important; }
 ::selection{ background: var(--my-bubble); color: #fff; }
 
 @media (min-width: 481px){
   #app{ box-shadow: 0 0 40px oklch(0 0 0 / 0.08); }
+}
+
+/* ---------- iPhone / touch polish ---------- */
+html{ -webkit-text-size-adjust: 100%; }
+*{ -webkit-tap-highlight-color: transparent; }
+/* touch-action:manipulation kills the double-tap-to-zoom delay on every
+   control, which is what makes taps feel instant in a home-screen PWA. */
+button, .btn, .chip, .tile, .navbtn, .choice-card, input, select{ touch-action: manipulation; }
+button, .btn, .chip, .tile, .navbtn, .choice-card{ -webkit-user-select: none; user-select: none; }
+input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
+.page{ padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
+.chat-log{ -webkit-overflow-scrolling: touch; }
+.photo-history-strip, .chip-row{ -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.photo-history-strip::-webkit-scrollbar, .chip-row::-webkit-scrollbar{ display: none; }
+
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
