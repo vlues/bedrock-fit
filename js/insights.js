@@ -143,7 +143,15 @@ const Insights = (() => {
       lines.push(`Weight check-ins: first ${first.weight ?? '—'}lb on ${new Date(first.date).toLocaleDateString()}, latest ${last.weight ?? '—'}lb on ${new Date(last.date).toLocaleDateString()}.`);
     }
     const target = Nutrition.dailyTarget(profile);
-    if (target) lines.push(`Estimated daily target: ~${target.calories} kcal, ~${target.proteinG}g protein.`);
+    if (target) lines.push(`Estimated daily target: ~${target.calories} kcal, ~${target.proteinG}g protein, ~${target.carbG}g carbs, ~${target.fatG}g fat (${target.goalLabel}, ~${target.weeklyRateLb > 0 ? '+' : ''}${target.weeklyRateLb} lb/wk expected).`);
+    const totals = Nutrition.todayTotals(profile);
+    if (totals.mealCount) lines.push(`Eaten TODAY so far: ${totals.calories} kcal, ${totals.proteinG}g protein, ${totals.carbG}g carbs, ${totals.fatG}g fat across ${totals.mealCount} logged meal(s). Water today: ${Nutrition.todayWaterMl(profile)} of ${Nutrition.waterTargetMl(profile)} ml.`);
+    const tape = ['waist', 'chest', 'arm', 'hips', 'thigh'].map(f => {
+      const list = checkins.filter(c => c[f] != null && c[f] !== '').sort((a, b) => a.date - b.date);
+      if (list.length < 2) return null;
+      return `${f} ${list[0][f]}→${list[list.length - 1][f]}in`;
+    }).filter(Boolean);
+    if (tape.length) lines.push('Tape measurement trends (first→latest): ' + tape.join(', ') + '.');
     if (typeof Fitbit !== 'undefined' && Fitbit.isConnected()) {
       const w = Fitbit.recentWearableSummary(profile);
       if (w) lines.push(`Fitbit (last ${w.days} days): ${w.count} logged activities, ~${w.totalSteps} total steps${w.avgHr ? `, avg heart rate ~${w.avgHr} bpm` : ''}${w.totalDistanceKm ? `, ~${w.totalDistanceKm} km covered` : ''}.`);

@@ -202,6 +202,7 @@ function finishOnboarding() {
   Sync.syncAfterLogin(ACTIVE);
   showView('dashboard');
   renderDashboard();
+  if (!localStorage.getItem(TOUR_DONE_KEY)) startTour();
   maybeAskOnboardingFollowUps();
 }
 
@@ -520,9 +521,36 @@ function startWorkout() {
     })
   };
   $('workoutTitle').textContent = session.label;
+  // The prescription, stated up front: rep range, rest, and the intensity
+  // cue for this goal — the "how hard should this feel" that separates a
+  // programmed session from just moving weights around.
+  const scheme = Workout.schemeFor(ACTIVE.goal, ACTIVE.exp);
+  $('workoutScheme').textContent = `Target ${scheme.sets} × ${scheme.reps} per exercise · rest ${scheme.rest} · ${scheme.note}`;
   renderWorkoutMeta();
   renderWorkoutList();
   showView('workout');
+}
+
+// Standard ramp-up warm-up for meaningful working weights: ~50% × 8 then
+// ~75% × 3 primes the pattern without eating into working-set capacity.
+// Skipped for light loads where "the first set is the warm-up" is fine.
+function warmupHint(workingWeight) {
+  if (!workingWeight || workingWeight < 60) return '';
+  const r5 = w => Math.max(5, Math.round(w / 5) * 5);
+  return `Warm-up first: ~${r5(workingWeight * 0.5)} lb × 8, then ~${r5(workingWeight * 0.75)} lb × 3.`;
+}
+
+// Plate math for barbell lifts: what to slide on each side of a 45 lb bar
+// to hit the suggested weight — the mental arithmetic everyone does at the
+// rack, done for you. Standard plate denominations, greedy fill.
+function plateHint(targetWeight) {
+  const BAR = 45;
+  if (!targetWeight || targetWeight <= BAR + 2.5) return '';
+  let perSide = (targetWeight - BAR) / 2;
+  const plates = [];
+  [45, 35, 25, 10, 5, 2.5].forEach(p => { while (perSide >= p - 0.01) { plates.push(p); perSide -= p; } });
+  if (!plates.length) return '';
+  return ` Bar math: 45 lb bar + ${plates.join(' + ')} per side.`;
 }
 
 function renderWorkoutMeta() {
@@ -546,7 +574,7 @@ function renderWorkoutList() {
         <h4>${ex.name}</h4>
         <button class="shuffle-btn" data-shuffleworkout="${exIdx}" title="Don't like this one? Swap it for another">🔀 Swap</button>
       </div>
-      <div class="exercise-meta">${suggested ? `Last time you handled ~${suggested} lb for target reps — pre-filled below, adjust if needed.` : 'No history yet — pick a weight you can control for the full rep range.'}</div>
+      <div class="exercise-meta">${suggested ? `Last time you handled ~${suggested} lb for target reps — pre-filled below, adjust if needed. ${warmupHint(suggested)}${exDef && exDef.type === 'barbell' ? plateHint(suggested) : ''}` : 'No history yet — pick a weight you can control for the full rep range, leaving 1-3 reps in the tank.'}</div>
       ${lastLogged ? `<button class="form-toggle" data-repeatlast="${exIdx}" style="color:var(--accent-text);">↺ Same as last time</button>` : ''}
       ${exDef && exDef.cue ? `
         <button class="form-toggle" data-formtoggle="${exIdx}">Show proper form ▾</button>
@@ -660,6 +688,44 @@ function addRestTime(sec) {
   renderRestTimer();
 }
 
+/* ---------------------------------------------------------------- */
+/* First-run guided tour — five plain-language cards, one per tab.    */
+/* Shows once per device (skippable, never nags again).               */
+/* ---------------------------------------------------------------- */
+const TOUR_DONE_KEY = 'bedrock_tour_done';
+const TOUR_STEPS = [
+  { icon: '🏠', title: 'Home', copy: 'Your workout for today lives here, already built for your goal. Tap the big orange play button to start it — that\'s the whole job.' },
+  { icon: '📈', title: 'Progress', copy: 'Photos, weight, measurements, and charts. Log a quick check-in whenever you want — Bedrock turns it into trends automatically.' },
+  { icon: '🍎', title: 'Fuel', copy: 'Food and water. Snap a photo of your plate and Bedrock counts the calories and macros — you just check its work and tap Log.' },
+  { icon: '💬', title: 'Ask', copy: 'A coach that can actually see your numbers. Ask anything — "am I on track?", "what should I eat tonight?" — and it answers from YOUR data.' },
+  { icon: '👥', title: 'Two people, one app', copy: 'Tap your avatar (top-left) to add or switch to your partner\'s profile. Separate plans, separate logs, one app.' }
+];
+let TOUR_STEP = 0;
+
+function startTour() {
+  TOUR_STEP = 0;
+  renderTourStep();
+  $('tourOverlay').hidden = false;
+}
+function renderTourStep() {
+  const step = TOUR_STEPS[TOUR_STEP];
+  $('tourIcon').textContent = step.icon;
+  $('tourTitle').textContent = step.title;
+  $('tourCopy').textContent = step.copy;
+  $('tourDots').innerHTML = TOUR_STEPS.map((_, i) => `<span class="tour-dot${i === TOUR_STEP ? ' active' : ''}"></span>`).join('');
+  $('btnTourNext').textContent = TOUR_STEP === TOUR_STEPS.length - 1 ? 'Let\'s go 💪' : 'Next';
+  $('btnTourSkip').hidden = TOUR_STEP === TOUR_STEPS.length - 1;
+}
+function endTour() {
+  $('tourOverlay').hidden = true;
+  localStorage.setItem(TOUR_DONE_KEY, '1');
+}
+function tourNext() {
+  if (TOUR_STEP >= TOUR_STEPS.length - 1) { endTour(); return; }
+  TOUR_STEP++;
+  renderTourStep();
+}
+
 // Small non-blocking notice, reusing the PR toast chrome — alert() freezes
 // the whole page and looks like a system error; this doesn't.
 function showToast(text, ms = 3200) {
@@ -701,6 +767,7 @@ function finishWorkout() {
   skipRestTimer();
   const cleaned = {
     ...ACTIVE_WORKOUT,
+    durationMin: Math.max(1, Math.round((Date.now() - ACTIVE_WORKOUT.date) / 60000)),
     exercises: ACTIVE_WORKOUT.exercises.map(ex => ({
       ...ex,
       sets: ex.sets.filter(s => s.done && s.reps !== '' && s.weight !== '').map(s => ({ reps: s.reps, weight: s.weight }))
@@ -775,15 +842,56 @@ function renderProgress() {
   renderFocusOverlayToggle();
   $('scanAiCard').style.opacity = Sync.isLoggedIn() ? '1' : '0.55';
 
+  renderProgressStatTiles();
   drawWeightChart();
   drawVolumeChart();
   drawMuscleChart();
   drawExerciseChart();
   renderScanHistory();
+  renderMeasurementTrends();
   renderPhotoHistory();
   renderTrajectoryStats();
   drawFitbitTrendChart();
   renderPastWorkouts();
+}
+
+// Four headline numbers, all straight from logs — the "how am I actually
+// doing" answer before any scrolling: weight + 28-day change, week streak,
+// recent session count, and the top PR.
+function renderProgressStatTiles() {
+  const wrap = $('progressStatTiles');
+  const checkins = (ACTIVE.history.checkins || []).filter(c => c.weight != null).sort((a, b) => a.date - b.date);
+  const latestW = checkins.length ? checkins[checkins.length - 1].weight : null;
+  const cutoff = Date.now() - 28 * 24 * 3600 * 1000;
+  const monthAgo = checkins.filter(c => c.date <= cutoff);
+  const baseline = monthAgo.length ? monthAgo[monthAgo.length - 1].weight : (checkins.length > 1 ? checkins[0].weight : null);
+  const delta = latestW != null && baseline != null ? Math.round((latestW - baseline) * 10) / 10 : null;
+  const streak = Insights.workoutStreak(ACTIVE);
+  const sessions28 = (ACTIVE.history.workouts || []).filter(w => w.date >= cutoff).length;
+  const prs = Object.values(Insights.exercisePRs(ACTIVE)).sort((a, b) => b.weight - a.weight);
+  const topPr = prs[0];
+  const tile = (val, label, sub) => `<div class="stat-tile"><div class="stat-tile-val">${val}</div><div class="stat-tile-label">${label}</div>${sub ? `<div class="stat-tile-sub">${sub}</div>` : ''}</div>`;
+  wrap.innerHTML =
+    tile(latestW != null ? displayWeight(latestW) : '—', 'weight', delta != null ? `${delta > 0 ? '+' : delta < 0 ? '−' : '±'}${displayWeight(Math.abs(delta))} / 4wk` : 'log check-ins') +
+    tile(streak, `week streak${streak === 1 ? '' : 's'}`, streak >= 2 ? 'keep it alive 🔥' : '') +
+    tile(sessions28, 'sessions / 28d', `${ACTIVE.days || 3}/wk planned`) +
+    tile(topPr ? `${topPr.weight} lb` : '—', 'best lift', topPr ? topPr.name : 'no PRs yet');
+}
+
+// First→latest delta per tape measurement — the recomposition signal the
+// scale hides. Only fields with 2+ logged values appear; card hides if none.
+function renderMeasurementTrends() {
+  const fields = [['waist', 'Waist'], ['chest', 'Chest'], ['arm', 'Arm'], ['hips', 'Hips / glutes'], ['thigh', 'Thigh']];
+  const rows = fields.map(([field, label]) => {
+    const list = (ACTIVE.history.checkins || []).filter(c => c[field] != null && c[field] !== '').sort((a, b) => a.date - b.date);
+    if (list.length < 2) return null;
+    const first = Number(list[0][field]), last = Number(list[list.length - 1][field]);
+    const d = Math.round((last - first) * 10) / 10;
+    const arrow = d > 0 ? '↑' : d < 0 ? '↓' : '→';
+    return `<div class="scan-history-row"><span>${label}</span><span>${first} → ${last} in <b>${arrow} ${d > 0 ? '+' : ''}${d}</b></span></div>`;
+  }).filter(Boolean);
+  $('measurementTrendCard').hidden = !rows.length;
+  if (rows.length) $('measurementTrends').innerHTML = rows.join('');
 }
 
 // Every check-in photo you've ever taken was already being saved
@@ -869,7 +977,8 @@ function renderPastWorkouts() {
           const sets = (ex.sets || []).map(s => `${displayWeight(Number(s.weight))} × ${s.reps}`).join(', ');
           return `<div class="past-workout-ex"><span>${ex.name}</span><span>${sets || '—'}</span></div>`;
         }).join('') || '<p class="muted-copy">No set detail on this session.</p>';
-        detailEl.innerHTML = lines + `<button class="btn btn-ghost btn-block danger" style="margin-top:6px;">Delete this session</button>`;
+        const durLine = w.durationMin ? `<p class="muted-copy" style="margin:6px 0 0;">⏱ ${w.durationMin} min session</p>` : '';
+        detailEl.innerHTML = lines + durLine + `<button class="btn btn-ghost btn-block danger" style="margin-top:6px;">Delete this session</button>`;
         detailEl.querySelector('.danger').addEventListener('click', () => {
           if (!confirm(`Delete the ${d} session? This removes it from your charts and PRs too.`)) return;
           ACTIVE.history.workouts = (ACTIVE.history.workouts || []).filter(x => x !== w && x.date !== w.date);
@@ -907,7 +1016,15 @@ function drawExerciseChart() {
   const unit = ACTIVE.unitWeight === 'kg' ? 'kg' : 'lb';
   const points = series.map(s => ({ y: ACTIVE.unitWeight === 'kg' ? Math.round(Store.lbToKg(s.weight) * 10) / 10 : s.weight }));
   MiniChart.draw($('exerciseChart'), [{ points }]);
-  $('exerciseCaption').textContent = Insights.trendCaption(series, unit);
+  let caption = Insights.trendCaption(series, unit);
+  // Epley estimated 1RM (w × (1 + reps/30)) from the best logged set — the
+  // standard strength-app metric for comparing progress across rep ranges.
+  const pr = Insights.exercisePRs(ACTIVE)[chosen];
+  if (pr && pr.weight && pr.reps > 1) {
+    const e1rm = Math.round(pr.weight * (1 + pr.reps / 30));
+    caption += ` Estimated 1RM: ~${displayWeight(e1rm)} (from your best set, ${pr.weight} lb × ${pr.reps} — Epley formula, an estimate not a test).`;
+  }
+  $('exerciseCaption').textContent = caption;
 }
 
 function renderScanHistory() {
@@ -1164,31 +1281,73 @@ function switchFuelTab(tab) {
   if (tab === 'nutrition') renderNutrition();
 }
 
+// One macro progress bar: label, logged vs target, fill %. Overshooting
+// calories flips the bar to the danger tint on a cut (where it matters) but
+// stays neutral otherwise — over-target protein is never painted as a problem.
+function macroBarHTML(label, logged, target, unit, opts = {}) {
+  const pct = target > 0 ? Math.min(100, Math.round(logged / target * 100)) : 0;
+  const over = target > 0 && logged > target;
+  const cls = over && opts.warnOnOver ? ' over' : (over ? ' met' : '');
+  const remaining = target - logged;
+  const detail = target > 0
+    ? (remaining >= 0 ? `${Math.round(remaining)}${unit} left` : (opts.warnOnOver ? `${Math.abs(Math.round(remaining))}${unit} over` : 'target met ✓'))
+    : '';
+  return `
+    <div class="macro-bar">
+      <div class="macro-bar-label"><span>${label}</span><span>${Math.round(logged)} / ${Math.round(target)}${unit}${detail ? ` · <b>${detail}</b>` : ''}</span></div>
+      <div class="macro-bar-track"><div class="macro-bar-fill${cls}" style="width:${pct}%"></div></div>
+    </div>`;
+}
+
 function renderNutrition() {
   const target = Nutrition.dailyTarget(ACTIVE);
   $('nutritionTargets').innerHTML = target ? `
-    <div class="scan-history-row"><span>Calories</span><span>~${target.calories} kcal</span></div>
-    <div class="scan-history-row"><span>Protein</span><span>~${target.proteinG} g</span></div>
-    <div class="scan-history-row"><span>Carbs</span><span>~${target.carbG} g</span></div>
-    <div class="scan-history-row"><span>Fat</span><span>~${target.fatG} g</span></div>
-  ` : '<p class="muted-copy">Add your height and weight in Settings to unlock this.</p>';
+    <div class="target-hero"><span class="target-hero-num">${target.calories.toLocaleString()}</span><span class="target-hero-unit">kcal / day</span></div>
+    <div class="target-macro-row">
+      <div class="target-macro"><b>${target.proteinG}g</b><span>protein</span></div>
+      <div class="target-macro"><b>${target.carbG}g</b><span>carbs</span></div>
+      <div class="target-macro"><b>${target.fatG}g</b><span>fat</span></div>
+    </div>
+    <p class="muted-copy" style="margin:10px 0 0;">${target.goalLabel.charAt(0).toUpperCase() + target.goalLabel.slice(1)} — expect roughly <b>${target.weeklyRateLb > 0 ? '+' : ''}${target.weeklyRateLb} lb/week</b> at this intake. Adjust off real results after 2-3 weeks, not day one.</p>
+  ` : '<p class="muted-copy">Add your height, weight, and age in Settings to unlock your targets.</p>';
+  $('btnWhyTargets').hidden = !target;
+  if (target) {
+    $('targetExplainer').innerHTML = `
+      <div class="explain-step"><b>1 · Resting burn (BMR): ${target.bmr.toLocaleString()} kcal.</b> Mifflin-St Jeor — the most validated resting-metabolism equation in the sports-nutrition literature — from your height, weight, age, and sex.</div>
+      <div class="explain-step"><b>2 · Daily burn (TDEE): ×${target.multiplier} → ${target.tdee.toLocaleString()} kcal.</b> Your ${target.days} training days/week puts you in the "${target.activityLabel}" bracket.</div>
+      <div class="explain-step"><b>3 · Goal adjustment: ${target.goalLabel} → ${target.calories.toLocaleString()} kcal.</b> Because ${target.goalWhy}.</div>
+      <div class="explain-step"><b>4 · Protein: ${target.proteinPerKg} g/kg → ${target.proteinG}g.</b> The 1.6-2.2 g/kg range is where meta-analyses show muscle-building benefits plateau — more isn't harmful, just unnecessary.</div>
+      <div class="explain-step"><b>5 · Fat: 25% of calories → ${target.fatG}g.</b> Keeps you above the ~20% floor that supports hormone production.</div>
+      <div class="explain-step"><b>6 · Carbs: the rest → ${target.carbG}g.</b> Training fuel — carbs power hard sets and recovery between them.</div>
+      <p class="muted-copy" style="margin:8px 0 0;">A research-standard starting estimate, not a lab measurement. The scale trend over 2-3 weeks is the real answer — nudge calories ±150 based on that.</p>`;
+  }
+
+  const totals = Nutrition.todayTotals(ACTIVE);
+  $('macroBars').innerHTML = target ? (
+    macroBarHTML('Calories', totals.calories, target.calories, ' kcal', { warnOnOver: ACTIVE.goal === 'fatloss' }) +
+    macroBarHTML('Protein', totals.proteinG, target.proteinG, 'g') +
+    macroBarHTML('Carbs', totals.carbG, target.carbG, 'g') +
+    macroBarHTML('Fat', totals.fatG, target.fatG, 'g') +
+    (totals.mealCount > totals.trackedMacroMeals && totals.mealCount > 0
+      ? '<p class="muted-copy" style="margin:8px 0 0;">Carb/fat bars only count meals logged with full macros (scans and estimates carry them automatically).</p>' : '')
+  ) : `<div class="scan-history-row"><span>Logged today</span><span>${totals.calories} kcal · ${totals.proteinG}g protein</span></div>`;
 
   const waterTarget = Nutrition.waterTargetMl(ACTIVE);
   const waterToday = Nutrition.todayWaterMl(ACTIVE);
-  $('waterProgress').innerHTML = `<div class="scan-history-row"><span>Today</span><span>${waterToday} / ${waterTarget} ml</span></div>`;
-
-  const remaining = Nutrition.remainingToday(ACTIVE);
-  $('remainingToday').innerHTML = remaining ? `
-    <div class="scan-history-row"><span>Logged today</span><span>${remaining.totals.calories} kcal · ${remaining.totals.proteinG}g protein</span></div>
-    <div class="scan-history-row"><span><b>Remaining vs. ${ACTIVE.goal} goal</b></span><span><b>${remaining.calories >= 0 ? remaining.calories + ' kcal' : 'over by ' + Math.abs(remaining.calories)} · ${remaining.proteinG >= 0 ? remaining.proteinG + 'g protein' : 'protein met'}</b></span></div>
-  ` : `<div class="scan-history-row"><span>Logged today</span><span>${Nutrition.todayTotals(ACTIVE).calories} kcal</span></div>`;
+  const waterPct = Math.min(100, Math.round(waterToday / waterTarget * 100));
+  $('waterBarFill').style.width = waterPct + '%';
+  $('waterBadge').textContent = waterPct >= 100 ? 'hydrated ✓' : `${waterPct}%`;
+  $('waterCaption').textContent = `${waterToday.toLocaleString()} / ${waterTarget.toLocaleString()} ml — ~35 ml per kg bodyweight plus a training buffer. Hydration measurably affects strength output and perceived effort.`;
 
   const mealWrap = $('mealList');
   mealWrap.innerHTML = '';
   Nutrition.todayMeals(ACTIVE).slice().reverse().forEach(m => {
     const row = document.createElement('div');
     row.className = 'scan-history-row meal-row';
-    row.innerHTML = `<span>${m.name}${m.aiEstimated ? ' 🤖' : ''}</span><span class="meal-row-right">${m.calories} kcal / ${m.proteinG}g<button class="meal-remove" aria-label="Remove ${m.name}">✕</button></span>`;
+    const macros = (m.carbG != null || m.fatG != null)
+      ? `${m.calories} kcal · ${m.proteinG}P/${m.carbG ?? 0}C/${m.fatG ?? 0}F`
+      : `${m.calories} kcal · ${m.proteinG}g protein`;
+    row.innerHTML = `<span>${m.name}${m.aiEstimated ? ' 🤖' : ''}</span><span class="meal-row-right">${macros}<button class="meal-remove" aria-label="Remove ${m.name}">✕</button></span>`;
     row.querySelector('.meal-remove').addEventListener('click', () => {
       Nutrition.removeMeal(ACTIVE, m.id);
       Sync.pushDebounced(ACTIVE);
@@ -1243,7 +1402,9 @@ function renderScanReview() {
       ${it.portion ? `<p class="muted-copy scan-review-portion">~${it.portion}</p>` : ''}
       <div class="scan-review-item-nums">
         <label>kcal<input type="number" inputmode="numeric" value="${it.calories || ''}" data-f="calories"></label>
-        <label>protein g<input type="number" inputmode="numeric" value="${it.proteinG || ''}" data-f="proteinG"></label>
+        <label>protein<input type="number" inputmode="numeric" value="${it.proteinG || ''}" data-f="proteinG"></label>
+        <label>carbs<input type="number" inputmode="numeric" value="${it.carbG || ''}" data-f="carbG"></label>
+        <label>fat<input type="number" inputmode="numeric" value="${it.fatG || ''}" data-f="fatG"></label>
       </div>`;
     row.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
       it[inp.dataset.f] = inp.value;
@@ -1261,10 +1422,12 @@ function renderScanReview() {
 function renderScanReviewTotals() {
   const totals = SCAN_REVIEW.items.reduce((a, it) => ({
     calories: a.calories + (Number(it.calories) || 0),
-    proteinG: a.proteinG + (Number(it.proteinG) || 0)
-  }), { calories: 0, proteinG: 0 });
+    proteinG: a.proteinG + (Number(it.proteinG) || 0),
+    carbG: a.carbG + (Number(it.carbG) || 0),
+    fatG: a.fatG + (Number(it.fatG) || 0)
+  }), { calories: 0, proteinG: 0, carbG: 0, fatG: 0 });
   $('scanReviewTotals').textContent = SCAN_REVIEW.items.length
-    ? `Total: ~${totals.calories} kcal · ~${totals.proteinG}g protein`
+    ? `Total: ~${totals.calories} kcal · ${totals.proteinG}P / ${totals.carbG}C / ${totals.fatG}F`
     : 'No items — add one, or cancel.';
 }
 
@@ -1396,24 +1559,40 @@ function renderChat() {
   }
 }
 
+function showChatTyping(show) {
+  let el = $('chatTyping');
+  if (show) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'chatTyping';
+      el.className = 'chat-bubble chat-ai chat-typing';
+      el.innerHTML = '<span></span><span></span><span></span>';
+      $('chatLog').appendChild(el);
+    }
+    $('chatLog').scrollTop = $('chatLog').scrollHeight;
+  } else if (el) el.remove();
+}
+
 async function sendChat() {
   const input = $('chatInput');
   const text = input.value.trim();
   if (!text) return;
-  if (!Sync.isLoggedIn()) { alert('Sign in under Settings → Sync first.'); return; }
+  if (!Sync.isLoggedIn()) { showToast('Sign in under Settings → Sync first.'); return; }
   ACTIVE.history.chats = ACTIVE.history.chats || [];
   ACTIVE.history.chats.push({ role: 'user', content: text, date: Date.now() });
   input.value = '';
   renderChat();
   saveActive();
+  showChatTyping(true);
 
   // Data-grounded: every chat turn includes a fresh summary of the user's
   // actual logs (the same numbers driving their charts) so answers cite
   // real figures instead of generic advice, and always end with one
   // concrete next step.
-  const sys = BEDROCK_PERSONA + `\n\nHere is the user's current data summary — this is exactly what feeds their charts on the Progress and Fuel tabs. Cite specific numbers from it directly in your answer (e.g. "your bench is up to X lb", "legs is Y% of your recent volume") rather than speaking generically. If the summary doesn't have what you'd need to answer precisely, say so plainly instead of guessing. End with one concrete, specific next action.\n\n${Insights.summaryText(ACTIVE)}\n\nKeep answers under ~60 words — direct and plain, no preamble.`;
+  const sys = BEDROCK_PERSONA + `\n\nHere is the user's current data summary — this is exactly what feeds their charts on the Progress and Fuel tabs. Cite specific numbers from it directly in your answer (e.g. "your bench is up to X lb", "legs is Y% of your recent volume") rather than speaking generically. If the summary doesn't have what you'd need to answer precisely, say so plainly instead of guessing. End with one concrete, specific next action.\n\n${Insights.summaryText(ACTIVE)}\n\nKeep answers under ~100 words — direct and plain, no preamble.`;
   const recent = ACTIVE.history.chats.slice(-10).map(m => ({ role: m.role, content: m.content }));
-  const res = await BedrockAPI.chat(recent, sys);
+  const res = await BedrockAPI.chat(recent, sys, 300);
+  showChatTyping(false);
   ACTIVE.history.chats.push({ role: 'assistant', content: res.ok ? res.text : 'Couldn’t reach Bedrock — check you’re signed in under Settings → Sync.', date: Date.now() });
   saveActive();
   renderChat();
@@ -1747,6 +1926,32 @@ function init() {
   }));
   qsa('#fuelTabs .chip').forEach(chip => chip.addEventListener('click', () => switchFuelTab(chip.dataset.tab)));
   qsa('[data-water]').forEach(btn => btn.addEventListener('click', () => addWater(Number(btn.dataset.water))));
+  $('btnWaterCustom').addEventListener('click', () => {
+    const row = $('waterCustomRow');
+    row.hidden = !row.hidden;
+    if (!row.hidden) $('waterCustomMl').focus();
+  });
+  $('btnWaterCustomAdd').addEventListener('click', () => {
+    const ml = Math.round(Number($('waterCustomMl').value));
+    if (!ml || ml <= 0) { showToast('Enter how many ml you drank.'); return; }
+    if (ml > 5000) { showToast('That\'s over 5 liters in one go — double-check the number.'); return; }
+    addWater(ml);
+    $('waterCustomMl').value = '';
+    $('waterCustomRow').hidden = true;
+    showToast(`+${ml} ml ✓`);
+  });
+  $('waterCustomMl').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnWaterCustomAdd').click(); });
+  $('btnWaterUndo').addEventListener('click', () => {
+    const removed = Nutrition.undoLastWaterToday(ACTIVE);
+    Sync.pushDebounced(ACTIVE);
+    renderNutrition();
+    showToast(removed ? `Removed ${removed.ml} ml.` : 'Nothing logged today to undo.');
+  });
+  $('btnWhyTargets').addEventListener('click', () => {
+    const ex = $('targetExplainer');
+    ex.hidden = !ex.hidden;
+    $('btnWhyTargets').textContent = ex.hidden ? 'Why these numbers? ▾' : 'Hide the math ▴';
+  });
   $('btnAddMeal').addEventListener('click', addMealFromForm);
   $('btnScanFood').addEventListener('click', openFoodScanCamera);
   $('btnUploadFood').addEventListener('click', () => $('foodPhotoInput').click());
@@ -1768,6 +1973,13 @@ function init() {
   $('btnShowFitbitBanner').addEventListener('click', () => { localStorage.removeItem(FITBIT_BANNER_DISMISSED_KEY); renderFitbitBanner(); renderFitbitPanel(); });
 
   qs('[data-close-chat]').addEventListener('click', () => showView('dashboard'));
+  $('btnClearChat').addEventListener('click', () => {
+    if (!(ACTIVE.history.chats || []).length) return;
+    if (!confirm('Clear this conversation? Your logs and data are untouched — just the chat history goes.')) return;
+    ACTIVE.history.chats = [];
+    saveActive();
+    renderChat();
+  });
   $('btnChatSend').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
@@ -1805,9 +2017,13 @@ function init() {
     if (target === 'chat') renderChat();
   }));
 
+  $('btnTourNext').addEventListener('click', tourNext);
+  $('btnTourSkip').addEventListener('click', endTour);
+
   if (ACTIVE) {
     showView('dashboard');
     renderDashboard();
+    if (!localStorage.getItem(TOUR_DONE_KEY)) startTour();
   } else {
     initOnboarding();
     showView('onboarding');

@@ -22,19 +22,44 @@ const Nutrition = (() => {
     if (days <= 4) return 1.55;
     return 1.725;
   }
+  function activityLabel(days) {
+    if (days <= 2) return 'lightly active';
+    if (days <= 4) return 'moderately active';
+    return 'very active';
+  }
+
+  // Goal adjustments follow the evidence on sustainable rates of change:
+  // ~10-12% surplus targets ~0.25-0.5% bodyweight/week gained (minimizes fat
+  // gain per unit muscle); ~18% deficit targets ~0.5-1% bodyweight/week lost
+  // (preserves muscle when protein + training are in place); strength gets a
+  // small surplus (performance without unnecessary fat gain).
+  const GOAL_ADJUST = {
+    muscle:   { factor: 1.12, label: 'building surplus (+12%)', why: 'a controlled surplus builds muscle with minimal fat gain — bigger surpluses just add fat faster, not muscle faster' },
+    strength: { factor: 1.05, label: 'performance surplus (+5%)', why: 'a small surplus supports heavy training and recovery without a bulking phase' },
+    fatloss:  { factor: 0.82, label: 'cutting deficit (−18%)', why: 'a moderate deficit loses fat while high protein + lifting protect the muscle underneath — crash deficits lose muscle too' },
+    general:  { factor: 1.0,  label: 'maintenance', why: 'eating at maintenance supports health and steady recomposition alongside consistent training' }
+  };
 
   function dailyTarget(profile) {
     const base = bmr(profile);
     if (!base) return null;
-    const tdee = base * activityMultiplier(Number(profile.days) || 3);
-    const adjust = { muscle: 1.12, strength: 1.05, fatloss: 0.82, general: 1.0 }[profile.goal] || 1.0;
-    const calories = Math.round(tdee * adjust);
+    const days = Number(profile.days) || 3;
+    const mult = activityMultiplier(days);
+    const tdee = base * mult;
+    const goal = GOAL_ADJUST[profile.goal] || GOAL_ADJUST.general;
+    const calories = Math.round(tdee * goal.factor);
     const kg = Store.lbToKg(profile.weightLb);
     const proteinPerKg = { muscle: 2.0, strength: 2.0, fatloss: 2.2, general: 1.6 }[profile.goal] || 1.8;
     const proteinG = Math.round(kg * proteinPerKg);
     const fatG = Math.round((calories * 0.25) / 9);
     const carbG = Math.max(0, Math.round((calories - proteinG * 4 - fatG * 9) / 4));
-    return { bmr: Math.round(base), tdee: Math.round(tdee), calories, proteinG, fatG, carbG };
+    // ~3500 kcal per lb of tissue: the standard back-of-envelope rate estimate.
+    const weeklyRateLb = Math.round(((calories - tdee) * 7 / 3500) * 10) / 10;
+    return {
+      bmr: Math.round(base), tdee: Math.round(tdee), calories, proteinG, fatG, carbG,
+      multiplier: mult, activityLabel: activityLabel(days), days,
+      goalLabel: goal.label, goalWhy: goal.why, weeklyRateLb, proteinPerKg
+    };
   }
 
   function waterTargetMl(profile) {
@@ -51,6 +76,19 @@ const Nutrition = (() => {
   }
   function todayWaterMl(profile) {
     return profile.history.water.filter(w => isToday(w.date)).reduce((a, w) => a + w.ml, 0);
+  }
+  // Undo removes the most recent of today's entries — a real correction for
+  // a double-tap, instead of the old "log negative water" workaround.
+  function undoLastWaterToday(profile) {
+    const water = profile.history.water || [];
+    for (let i = water.length - 1; i >= 0; i--) {
+      if (isToday(water[i].date)) {
+        const [removed] = water.splice(i, 1);
+        Store.upsertProfile(profile);
+        return removed;
+      }
+    }
+    return null;
   }
 
   function addMeal(profile, meal) {
@@ -76,9 +114,19 @@ const Nutrition = (() => {
   function todayMeals(profile) {
     return profile.history.meals.filter(m => isToday(m.date));
   }
+  // Carb/fat sums only count meals that actually carry those numbers (AI
+  // scans do; quick hand-entries may not) — trackedMacroMeals lets the UI
+  // caption the carb/fat bars honestly instead of implying full coverage.
   function todayTotals(profile) {
     const meals = todayMeals(profile);
-    return meals.reduce((a, m) => ({ calories: a.calories + m.calories, proteinG: a.proteinG + m.proteinG }), { calories: 0, proteinG: 0 });
+    return meals.reduce((a, m) => ({
+      calories: a.calories + m.calories,
+      proteinG: a.proteinG + m.proteinG,
+      carbG: a.carbG + (Number(m.carbG) || 0),
+      fatG: a.fatG + (Number(m.fatG) || 0),
+      trackedMacroMeals: a.trackedMacroMeals + (m.carbG != null || m.fatG != null ? 1 : 0),
+      mealCount: a.mealCount + 1
+    }), { calories: 0, proteinG: 0, carbG: 0, fatG: 0, trackedMacroMeals: 0, mealCount: 0 });
   }
 
   // Both estimate paths (photo + text) return the same shape: an itemized
@@ -181,6 +229,6 @@ const Nutrition = (() => {
 
   return {
     bmr, dailyTarget, waterTargetMl, logWater, todayWaterMl, addMeal, removeMeal, todayMeals, todayTotals,
-    estimateFoodPhoto, estimateFromText, frequentMeals, remainingToday, recentMealSummary, suggestMeal
+    undoLastWaterToday, estimateFoodPhoto, estimateFromText, frequentMeals, remainingToday, recentMealSummary, suggestMeal
   };
 })();

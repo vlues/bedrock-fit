@@ -279,6 +279,7 @@
           <p class="muted-copy" id="workoutMeta"></p>
         </div>
       </div>
+      <p class="workout-scheme" id="workoutScheme"></p>
       <div id="workoutList" class="workout-log-list"></div>
       <button class="btn btn-primary btn-block" id="btnFinishWorkout">Finish & save</button>
     </div>
@@ -296,6 +297,11 @@
     <div class="page">
       <button class="btn btn-ghost" data-close-progress>← Back</button>
       <h2>Progress check-in</h2>
+
+      <div class="card">
+        <div class="card-head"><h3>At a glance</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div class="stat-tiles" id="progressStatTiles"></div>
+      </div>
 
       <div class="card">
         <h3>Standing photo</h3>
@@ -355,6 +361,12 @@
         <canvas id="progressChart" width="320" height="160"></canvas>
         <p class="muted-copy" id="weightCaption"></p>
         <div id="scanHistory" class="scan-history"></div>
+      </div>
+
+      <div class="card" id="measurementTrendCard" hidden>
+        <div class="card-head"><h3>Measurement trends</h3><span class="badge-optional">📊 from your logs</span></div>
+        <div id="measurementTrends" class="scan-history"></div>
+        <p class="muted-copy" style="margin-top:8px;">First logged value → latest, per measurement. Tape measurements beat the scale for seeing recomposition — the scale can hold still while the waist drops and the arms grow.</p>
       </div>
 
       <div class="card">
@@ -430,24 +442,36 @@
 
       <div id="panel-nutrition" hidden>
         <div class="card">
-          <div class="card-head"><h3>Daily target</h3><span class="badge-optional">Mifflin-St Jeor</span></div>
-          <div id="nutritionTargets" class="scan-history"></div>
-          <p class="muted-copy">Estimated from your height, weight, age, sex, and training days — a research-standard formula, not a lab measurement. Treat it as a starting point and adjust based on real results.</p>
+          <div class="card-head"><h3>Your daily targets</h3><span class="badge-optional">Mifflin-St Jeor</span></div>
+          <div id="nutritionTargets"></div>
+          <button class="btn btn-ghost btn-block" id="btnWhyTargets" hidden>Why these numbers? ▾</button>
+          <div id="targetExplainer" class="target-explainer" hidden></div>
         </div>
 
         <div class="card">
-          <h3>Water</h3>
-          <div id="waterProgress" class="scan-history"></div>
-          <div class="btn-row">
-            <button class="btn btn-secondary" data-water="250">+250ml</button>
-            <button class="btn btn-secondary" data-water="500">+500ml</button>
-            <button class="btn btn-secondary" data-water="-250">−250ml</button>
+          <div class="card-head"><h3>Today so far</h3><span class="badge-optional">📊 from your logs</span></div>
+          <div id="macroBars"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Water</h3><span class="badge-optional" id="waterBadge"></span></div>
+          <div class="water-bar"><div class="water-bar-fill" id="waterBarFill"></div></div>
+          <p class="muted-copy" id="waterCaption" style="margin:8px 0 10px;"></p>
+          <div class="chip-row" style="margin-bottom:0;">
+            <button class="chip" data-water="250">🥛 Glass +250</button>
+            <button class="chip" data-water="500">🍶 Bottle +500</button>
+            <button class="chip" data-water="750">🫙 Large +750</button>
+            <button class="chip" id="btnWaterCustom">✏️ Custom</button>
+            <button class="chip" id="btnWaterUndo">↩ Undo</button>
+          </div>
+          <div class="field-row" id="waterCustomRow" hidden style="margin-top:10px;">
+            <label class="field" style="margin-bottom:0;"><span>Amount (ml)</span><input type="number" id="waterCustomMl" inputmode="numeric" placeholder="e.g. 330"></label>
+            <button class="btn btn-secondary" id="btnWaterCustomAdd" style="align-self:flex-end;">Add</button>
           </div>
         </div>
 
         <div class="card">
           <h3>Today's food</h3>
-          <div id="remainingToday" class="scan-history"></div>
           <div id="mealList" class="scan-history"></div>
 
           <div id="frequentMealChips" class="chip-row"></div>
@@ -489,7 +513,10 @@
   <!-- ===== CHAT ===== -->
   <section class="view" id="view-chat" hidden>
     <div class="page page-chat">
-      <button class="btn btn-ghost" data-close-chat>← Back</button>
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <button class="btn btn-ghost" data-close-chat>← Back</button>
+        <button class="btn btn-ghost" id="btnClearChat" style="font-size:12px;">Clear chat</button>
+      </div>
       <h2>Ask Bedrock</h2>
       <div class="chip-row" id="chatPrompts"></div>
       <div id="chatLog" class="chat-log"></div>
@@ -519,7 +546,7 @@
       </div>
       <div class="card">
         <h3>4. Fuel</h3>
-        <p class="muted-copy">Supplement education, plus a nutrition tab: daily calorie/protein target, a water tracker, and a food log (type it in, or scan a photo for a rough AI estimate you can edit before saving).</p>
+        <p class="muted-copy">Supplement education, plus a nutrition tab: research-based daily calorie and macro targets (tap "Why these numbers?" for the full math), live progress bars for calories/protein/carbs/fat, a water tracker with one-tap logging and undo, and a food log — type what you ate or scan/upload a photo, review the itemized estimate, fix anything, then log it.</p>
       </div>
       <div class="card">
         <h3>5. Bedrock's AI features (optional)</h3>
@@ -652,6 +679,20 @@
       <div class="camera-review-controls">
         <button class="btn btn-ghost" id="cameraRetake">↺ Retake</button>
         <button class="btn btn-primary" id="cameraUsePhoto">Use photo ✓</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== FIRST-RUN GUIDED TOUR ===== -->
+  <div class="sheet-backdrop" id="tourOverlay" hidden>
+    <div class="sheet tour-sheet">
+      <div class="tour-icon" id="tourIcon">🏠</div>
+      <h3 id="tourTitle">Welcome to Bedrock</h3>
+      <p class="tour-copy" id="tourCopy"></p>
+      <div class="tour-dots" id="tourDots"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnTourSkip">Skip</button>
+        <button class="btn btn-primary" id="btnTourNext">Next</button>
       </div>
     </div>
   </div>

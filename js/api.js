@@ -58,8 +58,8 @@ const BedrockAPI = (() => {
   // maxTokens is a genuine hard ceiling, not just a prompt suggestion — kept
   // tight (~150 tokens ≈ 100 words) so a verbose answer gets cut off rather
   // than the "keep it short" instruction above being the only thing stopping it.
-  async function chat(history, systemPrompt) {
-    return ask({ system: systemPrompt, messages: history, maxTokens: 150 });
+  async function chat(history, systemPrompt, maxTokens = 150) {
+    return ask({ system: systemPrompt, messages: history, maxTokens });
   }
 
   // Vision-capable message: photo (base64 data URL) + a question.
