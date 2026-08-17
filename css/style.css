@@ -822,6 +822,38 @@ a{ color: var(--accent-text); }
   color: var(--accent-text); padding:10px 0 2px;
 }
 
+/* ---------- hero checklist pills (was its own card) ---------- */
+.hero-checklist{ position:relative; display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
+.hero-check{
+  font-size:11.5px; font-weight:600; color: var(--muted-text);
+  background: var(--week-bg); border:1px solid var(--card-border);
+  border-radius:999px; padding:5px 11px;
+}
+.hero-check.done{ background: var(--pill-olive); color: var(--olive-text); border-color:transparent; }
+
+/* ---------- schedule: last-session line ---------- */
+.last-session-line{
+  width:100%; background:none; border:none; border-top:1px solid var(--hairline);
+  margin-top:10px; padding:10px 0 2px; text-align:left; cursor:pointer;
+  font-size:12.5px; font-weight:500; color: var(--muted-text); font-family:inherit;
+}
+.last-session-line b{ color: var(--accent-text); }
+
+/* ---------- workout: progress bar + collapsed exercises ---------- */
+.workout-progress{ height:6px; border-radius:999px; background: var(--ring-track); overflow:hidden; margin-top:10px; }
+.workout-progress-fill{ height:100%; border-radius:999px; background: var(--clay-grad); width:0%; transition: width .45s var(--ease); min-width:0; }
+.ex-done-badge{
+  font-size:11px; font-weight:700; color: var(--olive-text);
+  background: var(--pill-olive); border-radius:999px; padding:3px 9px; white-space:nowrap;
+}
+.log-item.collapsed > *:not(.log-item-head){ display:none; }
+.log-item.collapsed{ padding:12px 16px; opacity:0.75; cursor:pointer; }
+.log-item.collapsed h4{ margin:0; }
+
+/* ---------- scanner confidence tags ---------- */
+.confidence-low{ color: var(--danger); font-weight:600; }
+.confidence-med{ color: var(--accent-text); font-weight:600; }
+
 /* ---------- micro-animations ---------- */
 /* Staggered card entrance: each card in a page rises a beat after the one
    above it, so opening a tab feels composed rather than dumped. */

@@ -253,11 +253,8 @@ function renderDashboard() {
   renderTrainingForecast();
   renderWeekStrip();
   renderTodayChecklist();
-  renderWeeklyRecap();
-  renderLastSession();
   renderFitbitBanner();
   renderDailyInsight();
-  renderReadiness();
   renderHousehold();
   renderFitbitToday();
   silentFitbitAutoSync();
@@ -390,21 +387,23 @@ function renderWeekStrip() {
     : upcomingByDay[todayWd]
       ? `Today: ${upcomingByDay[todayWd]}. Miss a day? Nothing breaks — the plan just slides forward to your next session.`
       : 'Rest day — this is when the muscle you stimulated actually gets built. Training anyway is fine too; the plan adapts either way.';
+  renderLastSession();
 }
 
-// Three live habit checks — trained, ate, hydrated — the whole day's job in
-// one glance, each computed from real logs (never just "marked done").
+// Three live habit checks — trained, ate, hydrated — folded into the hero as
+// compact pills instead of their own card. Each is computed from real logs
+// (never just "marked done").
 function renderTodayChecklist() {
   const isToday = ts => new Date(ts).toDateString() === new Date().toDateString();
   const trained = (ACTIVE.history.workouts || []).some(w => isToday(w.date));
   const meals = Nutrition.todayMeals(ACTIVE).length;
   const waterPct = Math.round(Nutrition.todayWaterMl(ACTIVE) / Nutrition.waterTargetMl(ACTIVE) * 100);
-  const item = (done, icon, label, sub) =>
-    `<div class="check-item${done ? ' done' : ''}"><span class="check-mark">${done ? '✓' : ''}</span><span class="check-icon">${icon}</span><span class="check-label">${label}<small>${sub}</small></span></div>`;
+  const pill = (done, icon, sub) =>
+    `<span class="hero-check${done ? ' done' : ''}">${done ? '✓' : icon} ${sub}</span>`;
   $('todayChecklist').innerHTML =
-    item(trained, '🏋️', I18N.t('Session'), trained ? 'logged — nice' : 'tap play when ready') +
-    item(meals > 0, '🍽', I18N.t('Fuel'), meals > 0 ? `${meals} meal${meals === 1 ? '' : 's'} logged` : 'log your first meal') +
-    item(waterPct >= 100, '💧', I18N.t('Water'), waterPct >= 100 ? 'target hit' : `${Math.min(waterPct, 99)}% of target`);
+    pill(trained, '🏋️', trained ? 'trained' : 'train') +
+    pill(meals > 0, '🍽', meals > 0 ? `${meals} meal${meals === 1 ? '' : 's'}` : 'log food') +
+    pill(waterPct >= 100, '💧', waterPct >= 100 ? 'hydrated' : `${Math.min(waterPct, 99)}% water`);
 }
 
 // Last 7 days vs the 7 before — momentum, not just totals. Pure math from
@@ -433,25 +432,17 @@ function renderWeeklyRecap() {
     `<p class="muted-copy" style="margin-top:8px;">${thisWeek.length >= planned ? 'Full week banked — this is what progress is made of.' : thisWeek.length > 0 ? `${planned - thisWeek.length} more session${planned - thisWeek.length === 1 ? '' : 's'} hits the plan — the streak only needs one.` : 'Nothing logged in 7 days — the easiest session this week is the one that restarts the engine.'}</p>`;
 }
 
-// "What did I actually do last time?" without leaving Home — label, date,
-// duration, volume, and the heaviest set, with a tap-through to the full log.
+// "What did I actually do last time?" as a single line inside the Schedule
+// card (was its own card — Home is for today, the full log lives on
+// Progress, one tap away).
 function renderLastSession() {
-  const card = $('lastSessionCard');
+  const wrap = $('lastSessionLine');
   const list = (ACTIVE.history.workouts || []).filter(w => w.source !== 'fitbit').sort((a, b) => b.date - a.date);
   const w = list[0];
-  if (!w) { card.hidden = true; return; }
-  card.hidden = false;
+  if (!w) { wrap.innerHTML = ''; return; }
   const vol = (w.exercises || []).reduce((a, ex) => a + (ex.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
-  let top = null;
-  (w.exercises || []).forEach(ex => (ex.sets || []).forEach(s => {
-    if (!top || Number(s.weight) > Number(top.weight)) top = { name: ex.name, weight: s.weight, reps: s.reps };
-  }));
-  const d = new Date(w.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
-  $('lastSessionBody').innerHTML = `
-    <div class="scan-history-row"><span>${w.label || 'Session'}</span><span>${d}</span></div>
-    ${top && top.weight ? `<div class="scan-history-row"><span>Heaviest set</span><span>${top.name} — ${displayWeight(Number(top.weight))} × ${top.reps}</span></div>` : ''}
-    <div class="scan-history-row"><span>Volume${w.durationMin ? ' · time' : ''}</span><span>${Math.round(vol).toLocaleString()} lb·reps${w.durationMin ? ` · ⏱ ${w.durationMin} min` : ''}</span></div>
-    <button class="btn btn-ghost btn-block" id="btnSeeAllSessions" style="margin-top:4px;">See every session ▸</button>`;
+  const d = new Date(w.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  wrap.innerHTML = `<button class="last-session-line" id="btnSeeAllSessions">Last: ${w.label || 'Session'} · ${d} · ${Math.round(vol).toLocaleString()} lb·reps${w.durationMin ? ` · ${w.durationMin} min` : ''} <b>▸</b></button>`;
   $('btnSeeAllSessions').addEventListener('click', () => { showView('progress'); renderProgress(); setTimeout(() => $('pastWorkoutsList').scrollIntoView({ behavior: 'smooth', block: 'center' }), 60); });
 }
 
@@ -761,6 +752,8 @@ function renderWorkoutMeta() {
   const totalSets = ACTIVE_WORKOUT.exercises.reduce((a, ex) => a + ex.sets.length, 0);
   const doneSets = ACTIVE_WORKOUT.exercises.reduce((a, ex) => a + ex.sets.filter(s => s.done).length, 0);
   $('workoutMeta').textContent = `${ACTIVE_WORKOUT.exercises.length} exercises · ${doneSets}/${totalSets} sets done`;
+  const fill = $('workoutProgressFill');
+  if (fill) fill.style.width = (totalSets ? Math.round(doneSets / totalSets * 100) : 0) + '%';
 }
 
 function renderWorkoutList() {
@@ -775,6 +768,7 @@ function renderWorkoutList() {
     item.innerHTML = `
       <div class="log-item-head">
         <h4>${ex.name}</h4>
+        <span class="ex-done-badge" data-donebadge="${exIdx}" hidden>✓ done</span>
         <button class="shuffle-btn" data-shuffleworkout="${exIdx}" title="Don't like this one? Swap it for another">🔀 Swap</button>
       </div>
       <div class="exercise-meta">${suggested ? `Last time you handled ~${suggested} lb for target reps — pre-filled below, adjust if needed. ${warmupHint(suggested)}${exDef && exDef.type === 'barbell' ? plateHint(suggested) : ''}` : 'No history yet — pick a weight you can control for the full rep range, leaving 1-3 reps in the tank.'}</div>
@@ -791,6 +785,11 @@ function renderWorkoutList() {
       <button class="add-set-btn" data-addset="${exIdx}">+ add set</button>
     `;
     container.appendChild(item);
+    // Finished exercises fold down to just their name + ✓ so the screen
+    // always shows what's LEFT, not what's done. Tap the header to reopen.
+    item.querySelector('.log-item-head').addEventListener('click', e => {
+      if (item.classList.contains('collapsed') && !e.target.closest('.shuffle-btn')) item.classList.remove('collapsed');
+    });
     item.querySelector('[data-shuffleworkout]').addEventListener('click', () => shuffleWorkoutExercise(exIdx));
     item.querySelector('.equip-note').addEventListener('input', e => { ex.equipmentNote = e.target.value; });
     const repeatBtn = item.querySelector('[data-repeatlast]');
@@ -843,6 +842,13 @@ function renderSetRows(exIdx) {
       row.querySelector('.set-check').classList.toggle('checked', s.done);
       row.querySelector('.set-check').setAttribute('aria-pressed', String(s.done));
       renderWorkoutMeta();
+      const item = wrap.closest('.log-item');
+      const allDone = ex.sets.length > 0 && ex.sets.every(x => x.done);
+      if (item) {
+        item.classList.toggle('collapsed', allDone);
+        const badge = item.querySelector('[data-donebadge]');
+        if (badge) badge.hidden = !allDone;
+      }
       if (s.done) startRestTimer(Workout.restSecondsFor(ACTIVE.goal));
       else skipRestTimer();
     });
@@ -1188,6 +1194,8 @@ function renderProgress() {
   $('scanAiCard').style.opacity = Sync.isLoggedIn() ? '1' : '0.55';
 
   renderProgressStatTiles();
+  renderWeeklyRecap();
+  renderReadiness();
   drawWeightChart();
   drawVolumeChart();
   drawMuscleChart();
@@ -1897,7 +1905,7 @@ function renderScanReview() {
         <input type="text" value="${it.name.replace(/"/g, '&quot;')}" placeholder="Food" data-f="name" aria-label="Food name">
         <button class="meal-remove" data-remove aria-label="Remove item">✕</button>
       </div>
-      ${it.portion ? `<p class="muted-copy scan-review-portion">~${it.portion}</p>` : ''}
+      ${it.portion ? `<p class="muted-copy scan-review-portion">~${it.portion}${it.estGrams ? ` (~${it.estGrams} g)` : ''}${it.confidence === 'low' ? ' <span class="confidence-low">⚠︎ rough portion guess — check me</span>' : it.confidence === 'medium' ? ' <span class="confidence-med">~ portion is an estimate</span>' : ''}</p>` : ''}
       ${it.per100 ? `<div class="scan-review-grams"><label>How much did you eat? <input type="number" inputmode="numeric" value="${it.grams || 100}" data-grams> g</label></div>` : ''}
       <div class="scan-review-item-nums">
         <label>kcal<input type="number" inputmode="numeric" value="${it.calories || ''}" data-f="calories"></label>
@@ -2129,7 +2137,9 @@ async function scanFoodDataUrl(dataUrl) {
 }
 
 async function scanFoodPhoto(file) {
-  const dataUrl = await Scan.fileToCompressedDataUrl(file, 400);
+  // 640px, not 400: portion estimation lives or dies on resolution — the
+  // model needs to see plate rims and food texture to calibrate size.
+  const dataUrl = await Scan.fileToCompressedDataUrl(file, 640);
   scanFoodDataUrl(dataUrl);
 }
 
@@ -2557,7 +2567,6 @@ function init() {
 
   $('tileWeekPlan').addEventListener('click', toggleWeekAccordion);
 
-  $('tileProgress').addEventListener('click', () => { showView('progress'); renderProgress(); });
   qs('[data-close-progress]').addEventListener('click', () => showView('dashboard'));
   $('btnTakePhoto').addEventListener('click', openBodyScanCamera);
   $('btnUploadPhoto').addEventListener('click', () => $('scanPhotoInput').click());
@@ -2568,7 +2577,6 @@ function init() {
   $('btnComparePhotos').addEventListener('click', comparePhotosClick);
   $('btnToggleFocusOverlay').addEventListener('click', toggleFocusOverlay);
 
-  $('tileSupplements').addEventListener('click', () => { showView('supplements'); switchFuelTab('supplements'); renderSupplements(); loadAiSupplements(); });
   qs('[data-close-supplements]').addEventListener('click', () => showView('dashboard'));
   qsa('#supplementFilter .chip').forEach(chip => chip.addEventListener('click', () => {
     qsa('#supplementFilter .chip').forEach(c => c.classList.remove('active'));

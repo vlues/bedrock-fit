@@ -213,6 +213,7 @@
         <p class="hero-eyebrow" id="dashGoalLabel">Goal: Build muscle</p>
         <h2 id="dashGreeting">Welcome back</h2>
         <p class="hero-sub" id="dashStreak">0 workouts logged</p>
+        <div class="hero-checklist" id="todayChecklist"></div>
       </div>
 
       <div class="card forecast-card" id="forecastCard" hidden style="position:relative;">
@@ -223,24 +224,9 @@
         <p class="muted-copy" id="forecastFooter" style="margin:10px 0 0;"></p>
       </div>
 
-      <div class="card" id="todayChecklistCard">
-        <div class="card-head"><h3 data-i18n="Today">Today</h3><span class="badge-optional">📊 from your logs</span></div>
-        <div class="today-checklist" id="todayChecklist"></div>
-      </div>
-
       <div class="card insight-card" id="insightCard">
         <div class="card-head"><h3 data-i18n="Today's insight">Today's insight</h3><span class="badge-optional" id="insightBadge">daily</span></div>
         <p id="insightText" class="muted-copy">Loading…</p>
-      </div>
-
-      <div class="card" id="weeklyRecapCard" hidden>
-        <div class="card-head"><h3 data-i18n="Your week">Your week</h3><span class="badge-optional">last 7 days</span></div>
-        <div id="weeklyRecapBody"></div>
-      </div>
-
-      <div class="card" id="lastSessionCard" hidden>
-        <div class="card-head"><h3 data-i18n="Last session">Last session</h3><span class="badge-optional">📊 from your logs</span></div>
-        <div id="lastSessionBody"></div>
       </div>
 
       <div class="card" id="fitbitBanner" hidden style="position:relative; transition: transform .25s var(--ease), opacity .25s var(--ease);">
@@ -257,13 +243,6 @@
         <p class="ai-result" id="fitbitBreakdownResult" hidden></p>
       </div>
 
-      <div class="card" id="readinessCard" hidden>
-        <div class="card-head"><h3 data-i18n="Training load">Training load</h3><span class="badge-optional">ACWR · sports-science</span></div>
-        <div id="readinessBody"></div>
-        <button class="btn btn-ghost btn-block explain-btn" data-explain="load">🧸 Explain this to me simply</button>
-        <div class="ai-result" id="explain-load" hidden></div>
-      </div>
-
       <div class="card" id="householdCard" hidden>
         <div class="card-head"><h3>Household</h3><span class="badge-optional">this week</span></div>
         <div id="householdBody"></div>
@@ -273,6 +252,7 @@
         <div class="card-head"><h3>Schedule</h3><span class="badge-optional">adaptive</span></div>
         <div class="week-strip" id="weekStrip"></div>
         <p class="muted-copy" id="weekStripNote" style="margin:10px 0 0;"></p>
+        <div id="lastSessionLine"></div>
       </div>
 
       <div class="card" id="todayCard">
@@ -283,17 +263,6 @@
         <div id="todayExerciseList" class="exercise-list"></div>
         <button class="btn btn-primary btn-block" id="btnStartWorkout" data-i18n="Start workout">Start workout</button>
         <button class="btn btn-ghost btn-block" id="btnSlideSession">↷ Not feeling this one? Slide to the next session</button>
-      </div>
-
-      <div class="card-grid">
-        <button class="tile" id="tileProgress">
-          <span class="tile-icon ms">trending_up</span>
-          <span>Progress</span>
-        </button>
-        <button class="tile" id="tileSupplements">
-          <span class="tile-icon ms">nutrition</span>
-          <span>Fuel</span>
-        </button>
       </div>
 
       <button class="btn btn-ghost btn-block" id="tileWeekPlan" style="margin-top:14px;">🗓 See full week ▾</button>
@@ -311,6 +280,7 @@
           <p class="muted-copy" id="workoutMeta"></p>
         </div>
       </div>
+      <div class="workout-progress"><div class="workout-progress-fill" id="workoutProgressFill"></div></div>
       <p class="workout-scheme" id="workoutScheme"></p>
       <div id="workoutList" class="workout-log-list"></div>
       <button class="btn btn-primary btn-block" id="btnFinishWorkout" data-i18n="Finish & save">Finish &amp; save</button>
@@ -333,6 +303,18 @@
       <div class="card">
         <div class="card-head"><h3 data-i18n="At a glance">At a glance</h3><span class="badge-optional">📊 from your logs</span></div>
         <div class="stat-tiles" id="progressStatTiles"></div>
+      </div>
+
+      <div class="card" id="weeklyRecapCard" hidden>
+        <div class="card-head"><h3 data-i18n="Your week">Your week</h3><span class="badge-optional">last 7 days</span></div>
+        <div id="weeklyRecapBody"></div>
+      </div>
+
+      <div class="card" id="readinessCard" hidden>
+        <div class="card-head"><h3 data-i18n="Training load">Training load</h3><span class="badge-optional">ACWR · sports-science</span></div>
+        <div id="readinessBody"></div>
+        <button class="btn btn-ghost btn-block explain-btn" data-explain="load">🧸 Explain this to me simply</button>
+        <div class="ai-result" id="explain-load" hidden></div>
       </div>
 
       <div class="card">

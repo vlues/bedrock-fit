@@ -287,7 +287,9 @@ const Camera = (() => {
     const canvas = document.getElementById('cameraCanvas');
     if (!video.videoWidth) return; // not ready yet
     flashEffect();
-    const maxW = 480;
+    // Food shots go to the vision model (portion accuracy needs detail);
+    // body shots get stored in localStorage (size matters more than pixels).
+    const maxW = currentGuide === 'food' ? 640 : 480;
     const scale = Math.min(1, maxW / video.videoWidth);
     canvas.width = Math.round(video.videoWidth * scale);
     canvas.height = Math.round(video.videoHeight * scale);

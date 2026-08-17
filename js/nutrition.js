@@ -143,7 +143,7 @@ const Nutrition = (() => {
   // list of foods with per-item numbers, so the UI can show a review sheet
   // where each item is editable/removable before anything is logged —
   // instead of one opaque total the user has to take or leave.
-  const ITEMIZE_SYS = 'You itemize food for casual calorie tracking. Estimates are rough, never precise, and the note must say so honestly. The user may describe food in Spanish or English (they live in Spain) — understand both, including Spanish and regional dishes (tortilla española, gazpacho, fabada, pan con tomate, jamón ibérico, etc.) and Spanish brand/portion conventions, and keep each item\'s name in the language the user used. Respond with ONLY a JSON object, no markdown fences, no prose, exactly this shape: {"items":[{"name":"short food name","portion":"rough portion e.g. 1 cup","calories":320,"proteinG":12,"carbG":30,"fatG":14}],"note":"one short honest caveat about accuracy"} — one entry per distinct food you can identify, whole numbers only.';
+  const ITEMIZE_SYS = 'You itemize food for casual calorie tracking. Estimates are rough, never precise, and the note must say so honestly. The user may describe food in Spanish or English (they live in Spain) — understand both, including Spanish and regional dishes (tortilla española, gazpacho, fabada, pan con tomate, jamón ibérico, etc.) and Spanish brand/portion conventions, and keep each item\'s name in the language the user used. Use any visible size references (fork, hand, plate rim, packaging) to calibrate portions. Respond with ONLY a JSON object, no markdown fences, no prose, exactly this shape: {"items":[{"name":"short food name","portion":"rough portion e.g. 1 cup","grams":150,"calories":320,"proteinG":12,"carbG":30,"fatG":14,"confidence":"high|medium|low"}],"note":"one short honest caveat about accuracy"} — one entry per distinct food you can identify, whole numbers only. confidence reflects how sure you are of the PORTION SIZE (identification is usually easy; portions are the hard part — be honest, use "low" freely).';
 
   function parseItemized(text, fallbackName) {
     try {
@@ -154,10 +154,12 @@ const Nutrition = (() => {
         .map(it => ({
           name: String(it.name || 'Food').slice(0, 60),
           portion: it.portion ? String(it.portion).slice(0, 40) : '',
+          estGrams: Math.min(2000, Math.max(0, Math.round(Number(it.grams) || 0))) || null,
           calories: Math.max(0, Math.round(Number(it.calories) || 0)),
           proteinG: Math.max(0, Math.round(Number(it.proteinG) || 0)),
           carbG: Math.max(0, Math.round(Number(it.carbG) || 0)),
-          fatG: Math.max(0, Math.round(Number(it.fatG) || 0))
+          fatG: Math.max(0, Math.round(Number(it.fatG) || 0)),
+          confidence: ['high', 'medium', 'low'].includes(it.confidence) ? it.confidence : null
         }))
         .filter(it => it.name && (it.calories || it.proteinG));
       if (!items.length) throw new Error('no items');
