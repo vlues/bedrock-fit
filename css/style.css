@@ -282,6 +282,14 @@ a{ color: var(--accent-text); }
   content:''; position:absolute; top:-70px; right:-40px; width:190px; height:190px; border-radius:50%;
   background: radial-gradient(circle, oklch(0.72 0.11 58 / 0.36), transparent 68%); pointer-events:none;
 }
+/* liquid-glass sheen: a soft specular band sweeps across once on load */
+.hero-card::after{
+  content:''; position:absolute; top:0; bottom:0; width:55%; left:-60%;
+  background: linear-gradient(105deg, transparent, oklch(1 0 0 / 0.22), transparent);
+  transform: skewX(-18deg); pointer-events:none;
+  animation: sheen 2.4s var(--ease) .5s both;
+}
+@keyframes sheen{ from{ left:-60%; } to{ left:130%; } }
 .hero-eyebrow{ position:relative; font-size:12px; text-transform:uppercase; letter-spacing:.09em; font-weight:600; color: var(--accent-text); margin:0; }
 .hero-card h2{ position:relative; font-family:'Instrument Serif', serif; font-weight:400; font-size:30px; line-height:1.12; letter-spacing:-0.01em; margin: 8px 0 0; color: var(--text); }
 .hero-sub{ position:relative; opacity:.75; font-size:14px; margin:9px 0 0; color: var(--text); }
@@ -518,10 +526,18 @@ a{ color: var(--accent-text); }
   display:flex; align-items:flex-end; justify-content:center;
   animation: fadein .2s var(--ease);
 }
+.sheet-backdrop{ backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .sheet{
-  background: var(--bg); width:100%; max-width:480px; border-radius: 26px 26px 0 0;
-  padding: 22px 18px 30px; box-shadow: 0 -8px 30px oklch(0 0 0 / 0.2);
+  background: color-mix(in oklch, var(--bg) 86%, transparent);
+  backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6);
+  border-top: 1px solid var(--card-border);
+  width:100%; max-width:480px; border-radius: 26px 26px 0 0;
+  padding: 22px 18px calc(30px + env(safe-area-inset-bottom, 0px));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.25), 0 -8px 30px oklch(0 0 0 / 0.2);
+  animation: sheetUp .35s var(--ease) both;
+  max-height: 82vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
 }
+@keyframes sheetUp{ from{ transform: translateY(40px); opacity:0; } to{ transform:none; opacity:1; } }
 .switcher-list{ display:flex; flex-direction:column; gap:10px; margin: 14px 0 18px; }
 .switcher-row{
   display:flex; align-items:center; gap:12px; padding:12px; border-radius: var(--radius-md);
@@ -853,6 +869,29 @@ a{ color: var(--accent-text); }
 /* ---------- scanner confidence tags ---------- */
 .confidence-low{ color: var(--danger); font-weight:600; }
 .confidence-med{ color: var(--accent-text); font-weight:600; }
+
+/* ---------- swap chooser / form guide / debrief sheets ---------- */
+.swap-exclude-row{
+  display:flex; align-items:flex-start; gap:9px; font-size:13px; color: var(--muted-text);
+  padding: 4px 2px 12px; cursor:pointer;
+}
+.swap-exclude-row input{ margin-top:2px; accent-color: oklch(0.58 0.115 42); }
+.swap-exclude-row b{ color: var(--text); }
+.form-steps{ margin: 6px 0 16px; }
+.form-step{
+  display:flex; gap:12px; align-items:flex-start; padding:10px 0;
+  border-bottom:1px solid var(--hairline); font-size:14.5px; line-height:1.5;
+}
+.form-step-num{
+  flex-shrink:0; width:24px; height:24px; border-radius:50%;
+  background: var(--clay-grad); color:#fff; font-size:12px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; margin-top:1px;
+}
+.done-emoji{ font-size:52px; animation: popIn .6s var(--ease-bounce) both; }
+.done-pr{ margin:4px 0; font-size:13.5px; font-weight:600; color: var(--accent-text); }
+.delta-up{ color: var(--olive-text); font-weight:700; font-size:11px; }
+.delta-down{ color: var(--danger); font-weight:700; font-size:11px; }
+.delta-flat{ color: var(--muted-text); font-weight:700; font-size:11px; }
 
 /* ---------- micro-animations ---------- */
 /* Staggered card entrance: each card in a page rises a beat after the one

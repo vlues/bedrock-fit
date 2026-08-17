@@ -670,25 +670,61 @@ function excludeExerciseAndRefresh(exerciseId) {
   saveActive();
 }
 
-// Swaps just one exercise inside an in-progress workout for an alternative
-// from the same muscle pool — doesn't touch the other exercises, so any
-// sets already logged for them stay put.
-function shuffleWorkoutExercise(exIdx) {
+// Swap chooser: shows the actual alternatives (same muscle, your equipment)
+// and lets the user PICK, instead of the old random roulette that also
+// silently banned the current exercise from all future plans. Exclusion is
+// now an explicit, labeled checkbox.
+let SWAP_EX_IDX = null;
+
+function openSwapSheet(exIdx) {
+  SWAP_EX_IDX = exIdx;
   const ex = ACTIVE_WORKOUT.exercises[exIdx];
   const exDef = Workout.EX.find(e => e.id === ex.id) || (ACTIVE.customExercises || []).find(e => e.id === ex.id);
   if (!exDef) return;
-  excludeExerciseAndRefresh(ex.id);
   const pool = Workout.exercisesFor(exDef.muscle, ACTIVE.equipment, ACTIVE.limitations, ACTIVE.customExercises, ACTIVE.excludedExercises)
-    .filter(p => p.id !== ex.id);
-  if (!pool.length) { renderWorkoutList(); return; } // nothing left to swap to — keep current, exclusion still saved for future plans
-  const replacement = pool[Math.floor(Math.random() * pool.length)];
+    .filter(p => p.id !== ex.id && !ACTIVE_WORKOUT.exercises.some(e => e.id === p.id));
+  if (!pool.length) { showToast('No alternatives left for this muscle group with your equipment.'); return; }
+  $('swapSheetTitle').textContent = `Swap ${ex.name}`;
+  $('swapExcludeName').textContent = ex.name;
+  $('swapExcludeToggle').checked = false;
+  const rows = [{ id: '__random', name: '🎲 Surprise me', sub: 'Bedrock picks' }]
+    .concat(pool.map(p => {
+      const w = Workout.suggestWeight(ACTIVE, p.id);
+      return { id: p.id, name: p.name, sub: w ? `you've done ~${w} lb` : { machine: 'machine', barbell: 'barbell', dumbbell: 'dumbbells', bodyweight: 'no equipment' }[p.type] || '' };
+    }));
+  $('swapSheetList').innerHTML = rows.map(r =>
+    `<button class="switcher-row" data-swappick="${r.id}"><span class="swname">${r.name}</span><span class="swgoal">${r.sub}</span></button>`).join('');
+  $('swapSheetList').querySelectorAll('[data-swappick]').forEach(btn => btn.addEventListener('click', () => {
+    const pickId = btn.dataset.swappick === '__random' ? pool[Math.floor(Math.random() * pool.length)].id : btn.dataset.swappick;
+    applySwap(exIdx, pool.find(p => p.id === pickId) || pool[0], $('swapExcludeToggle').checked);
+  }));
+  $('swapSheet').hidden = false;
+}
+
+function applySwap(exIdx, replacement, excludeOld) {
+  const ex = ACTIVE_WORKOUT.exercises[exIdx];
+  if (excludeOld) excludeExerciseAndRefresh(ex.id);
   const suggested = Workout.suggestWeight(ACTIVE, replacement.id);
   ACTIVE_WORKOUT.exercises[exIdx] = {
     id: replacement.id, name: replacement.name, targetRepsMin: ex.targetRepsMin,
     sets: ex.sets.map(() => ({ reps: suggested ? String(ex.targetRepsMin) : '', weight: suggested ? String(suggested) : '', done: false }))
   };
+  $('swapSheet').hidden = true;
   renderWorkoutList();
   renderWorkoutMeta();
+  showToast(`Swapped in ${replacement.name} ✓`);
+}
+
+// Full-screen form guide: the cue broken into numbered steps you can read
+// at arm's length between sets, plus the live demo-video search link (a
+// search, not one hardcoded video, so it can't rot).
+function openFormSheet(exName, cue) {
+  $('formSheetTitle').textContent = exName;
+  const steps = cue.split(/,(?![^(]*\))/).map(s => s.trim()).filter(Boolean);
+  $('formSheetSteps').innerHTML = steps.map((s, i) =>
+    `<div class="form-step"><span class="form-step-num">${i + 1}</span><span>${s.charAt(0).toUpperCase() + s.slice(1)}</span></div>`).join('');
+  $('formSheetDemo').href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent('how to do ' + exName + ' proper form');
+  $('formSheet').hidden = false;
 }
 
 // Less typing, not more: pre-fill each set with a real suggested
@@ -773,13 +809,7 @@ function renderWorkoutList() {
       </div>
       <div class="exercise-meta">${suggested ? `Last time you handled ~${suggested} lb for target reps — pre-filled below, adjust if needed. ${warmupHint(suggested)}${exDef && exDef.type === 'barbell' ? plateHint(suggested) : ''}` : 'No history yet — pick a weight you can control for the full rep range, leaving 1-3 reps in the tank.'}</div>
       ${lastLogged ? `<button class="form-toggle" data-repeatlast="${exIdx}" style="color:var(--accent-text);">↺ Same as last time</button>` : ''}
-      ${exDef && exDef.cue ? `
-        <button class="form-toggle" data-formtoggle="${exIdx}">Show proper form ▾</button>
-        <div class="form-cue" data-formcue="${exIdx}" hidden>
-          <p class="muted-copy">${exDef.cue}</p>
-          <a href="https://www.youtube.com/results?search_query=${encodeURIComponent('how to do ' + ex.name + ' proper form')}" target="_blank" rel="noopener" class="form-demo-link">Watch a demo ↗</a>
-        </div>
-      ` : ''}
+      ${exDef && exDef.cue ? `<button class="form-toggle" data-formsheet="${exIdx}">🎬 Form guide</button>` : ''}
       <input type="text" class="equip-note" placeholder="Equipment / setup notes (optional)" value="${ex.equipmentNote || ''}" data-eqnote="${exIdx}">
       <div class="setRows" data-ex="${exIdx}"></div>
       <button class="add-set-btn" data-addset="${exIdx}">+ add set</button>
@@ -790,7 +820,7 @@ function renderWorkoutList() {
     item.querySelector('.log-item-head').addEventListener('click', e => {
       if (item.classList.contains('collapsed') && !e.target.closest('.shuffle-btn')) item.classList.remove('collapsed');
     });
-    item.querySelector('[data-shuffleworkout]').addEventListener('click', () => shuffleWorkoutExercise(exIdx));
+    item.querySelector('[data-shuffleworkout]').addEventListener('click', () => openSwapSheet(exIdx));
     item.querySelector('.equip-note').addEventListener('input', e => { ex.equipmentNote = e.target.value; });
     const repeatBtn = item.querySelector('[data-repeatlast]');
     if (repeatBtn) repeatBtn.addEventListener('click', () => {
@@ -798,12 +828,8 @@ function renderWorkoutList() {
       renderSetRows(exIdx);
       renderWorkoutMeta();
     });
-    const formToggle = item.querySelector('[data-formtoggle]');
-    if (formToggle) formToggle.addEventListener('click', () => {
-      const cueEl = item.querySelector('[data-formcue]');
-      cueEl.hidden = !cueEl.hidden;
-      formToggle.textContent = cueEl.hidden ? 'Show proper form ▾' : 'Hide proper form ▴';
-    });
+    const formBtn = item.querySelector('[data-formsheet]');
+    if (formBtn) formBtn.addEventListener('click', () => openFormSheet(ex.name, exDef.cue));
     renderSetRows(exIdx);
     item.querySelector('.add-set-btn').addEventListener('click', () => {
       ACTIVE_WORKOUT.exercises[exIdx].sets.push({ reps: '', weight: '', done: false });
@@ -848,6 +874,12 @@ function renderSetRows(exIdx) {
         item.classList.toggle('collapsed', allDone);
         const badge = item.querySelector('[data-donebadge]');
         if (badge) badge.hidden = !allDone;
+        // The trainer walks you forward: when an exercise wraps, glide to
+        // the next one that still has work in it — no hunting, no scrolling.
+        if (allDone && s.done) {
+          const next = qsa('#workoutList .log-item').find(el => !el.classList.contains('collapsed'));
+          if (next) setTimeout(() => next.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350);
+        }
       }
       if (s.done) startRestTimer(Workout.restSecondsFor(ACTIVE.goal));
       else skipRestTimer();
@@ -1087,21 +1119,8 @@ function fireConfetti() {
   })(t0);
 }
 
-// Celebrates real, data-verified wins (a beaten prior best, a maintained
-// streak) — never fabricated hype. Auto-dismisses; tap to close early.
-function showPRToast(prs, streak) {
-  const toast = $('prToast');
-  if (!toast) return;
-  const realPRs = prs.filter(p => !p.isFirst);
-  const lines = realPRs.slice(0, 3).map(p => `🏆 New PR — ${p.name}: ${p.weight} lb (up from ${p.prevWeight} lb)`);
-  if (streak >= 2) lines.push(`🔥 ${streak}-week streak — keep it going`);
-  if (!lines.length) return;
-  if (realPRs.length) fireConfetti();
-  toast.innerHTML = lines.map(l => `<p>${l}</p>`).join('');
-  toast.hidden = false;
-  clearTimeout(toast._hideTimer);
-  toast._hideTimer = setTimeout(() => { toast.hidden = true; }, 5500);
-}
+// (PR celebration now lives in the post-workout debrief sheet — see
+// openDoneSheet — which shows PRs, streak, and confetti in one place.)
 
 function finishWorkout() {
   if (!ACTIVE_WORKOUT) return;
@@ -1127,13 +1146,63 @@ function finishWorkout() {
   // Diff against history BEFORE this session is pushed in, so "PR" means
   // you actually beat your own prior best — not just that you typed a number.
   const prs = Insights.checkNewPRs(ACTIVE, cleaned.exercises);
+  // Previous same-label session, captured BEFORE this one lands in history —
+  // it powers the "vs last time" line in the debrief.
+  const prevSame = (ACTIVE.history.workouts || []).filter(w => w.label === cleaned.label && w.source !== 'fitbit').slice(-1)[0];
   ACTIVE.history.workouts = ACTIVE.history.workouts || [];
   ACTIVE.history.workouts.push(cleaned);
   saveActive();
   ACTIVE_WORKOUT = null;
-  showPRToast(prs, Insights.workoutStreak(ACTIVE));
   showView('dashboard');
   renderDashboard();
+  openDoneSheet(cleaned, prs, prevSame);
+}
+
+/* ---------------------------------------------------------------- */
+/* Session debrief — auto-appears when you finish: your numbers, any   */
+/* PRs, the vs-last-time delta, and a coach's read (Claude when signed */
+/* in, honest rule-based math when not). Confetti because you earned   */
+/* the session either way.                                             */
+/* ---------------------------------------------------------------- */
+function sessionVolume(w) {
+  return (w.exercises || []).reduce((a, ex) => a + (ex.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
+}
+
+async function openDoneSheet(session, prs, prevSame) {
+  const vol = Math.round(sessionVolume(session));
+  const sets = (session.exercises || []).reduce((a, ex) => a + (ex.sets || []).length, 0);
+  const realPRs = (prs || []).filter(p => !p.isFirst);
+  const streak = Insights.workoutStreak(ACTIVE);
+  fireConfetti();
+  $('doneTitle').textContent = realPRs.length ? 'PR day 🏆' : 'Session complete';
+  const tile = (val, label) => `<div class="stat-tile"><div class="stat-tile-val">${val}</div><div class="stat-tile-label">${label}</div></div>`;
+  $('doneStats').innerHTML =
+    tile(session.durationMin ? session.durationMin + ' min' : '—', 'duration') +
+    tile(sets, 'sets done') +
+    tile(vol.toLocaleString(), 'lb·reps') +
+    tile(streak || '—', `week streak${streak === 1 ? '' : 's'}`);
+  $('donePRs').innerHTML = realPRs.slice(0, 3).map(p => `<p class="done-pr">🏆 ${p.name}: ${p.weight} lb — up from ${p.prevWeight} lb</p>`).join('');
+  $('doneSheet').hidden = false;
+
+  // vs-last-time math is always available; Claude just says it better
+  const prevVol = prevSame ? Math.round(sessionVolume(prevSame)) : null;
+  const delta = prevVol ? Math.round((vol - prevVol) / prevVol * 100) : null;
+  const ruleLine = delta == null
+    ? 'Baseline set — next time this session runs, you\'ll see exactly how you compare.'
+    : delta >= 0
+      ? `${delta}% more total work than your last ${session.label} — that's progressive overload actually happening.`
+      : `${Math.abs(delta)}% less volume than last ${session.label} — fine, some days are maintenance days. Showing up still counts.`;
+  const out = $('doneDebrief');
+  out.hidden = false;
+  if (!Sync.isLoggedIn()) { out.textContent = ruleLine; return; }
+  out.textContent = 'Getting your debrief…';
+  const summary = `Just finished: ${session.label}, ${sets} sets, ${vol} lb-reps total${session.durationMin ? `, ${session.durationMin} min` : ''}.` +
+    (prevVol != null ? ` Previous ${session.label}: ${prevVol} lb-reps.` : ' First time running this session.') +
+    (realPRs.length ? ` New PRs: ${realPRs.map(p => `${p.name} ${p.weight}lb (was ${p.prevWeight})`).join(', ')}.` : ' No PRs today.') +
+    ` Week streak: ${streak}. Goal: ${ACTIVE.goal}.`;
+  const sys = BEDROCK_PERSONA + ' Give a 2-sentence post-workout debrief: one honest observation about THIS session\'s numbers vs last time, and one specific thing to aim for next session. Encouraging but never fake — if volume dropped, say so kindly. No preamble.';
+  const res = await BedrockAPI.chat([{ role: 'user', content: summary }], sys, 150);
+  out.textContent = res.ok ? res.text : ruleLine;
 }
 
 /* ---------------------------------------------------------------- */
@@ -1390,12 +1459,27 @@ function renderPastWorkouts() {
       const opening = detailEl.hidden;
       // Built lazily on first open — most rows never get expanded.
       if (opening && !detailEl.dataset.built) {
+        // Deep dive per exercise: top set, delta vs the PREVIOUS time this
+        // exercise was done (before this session), and a 🏆 when this
+        // session set an all-time best at the time.
+        const allWorkouts = (ACTIVE.history.workouts || []).slice().sort((a, b) => a.date - b.date);
+        const topW = ex => Math.max(0, ...((ex.sets || []).map(s => Number(s.weight) || 0)));
         const lines = (w.exercises || []).map(ex => {
           const sets = (ex.sets || []).map(s => `${displayWeight(Number(s.weight))} × ${s.reps}`).join(', ');
-          return `<div class="past-workout-ex"><span>${ex.name}</span><span>${sets || '—'}</span></div>`;
+          const thisTop = topW(ex);
+          let prevTop = 0, bestBefore = 0;
+          allWorkouts.filter(x => x.date < w.date).forEach(x => {
+            const m = (x.exercises || []).find(e => e.id === ex.id);
+            if (m) { const t = topW(m); prevTop = t; bestBefore = Math.max(bestBefore, t); }
+          });
+          const wasPR = thisTop > 0 && bestBefore > 0 && thisTop > bestBefore;
+          const d = prevTop > 0 && thisTop > 0 ? Math.round((thisTop - prevTop) * 10) / 10 : null;
+          const deltaTag = d == null ? '' : d > 0 ? ` <span class="delta-up">↑${d}</span>` : d < 0 ? ` <span class="delta-down">↓${Math.abs(d)}</span>` : ' <span class="delta-flat">=</span>';
+          return `<div class="past-workout-ex"><span>${wasPR ? '🏆 ' : ''}${ex.name}${deltaTag}</span><span>${sets || '—'}</span></div>`;
         }).join('') || '<p class="muted-copy">No set detail on this session.</p>';
-        const durLine = w.durationMin ? `<p class="muted-copy" style="margin:6px 0 0;">⏱ ${w.durationMin} min session</p>` : '';
-        detailEl.innerHTML = lines + durLine + `<button class="btn btn-ghost btn-block danger" style="margin-top:6px;">Delete this session</button>`;
+        const sets = (w.exercises || []).reduce((a, ex) => a + (ex.sets || []).length, 0);
+        const statLine = `<p class="muted-copy" style="margin:6px 0 0;">${w.durationMin ? `⏱ ${w.durationMin} min · ` : ''}${sets} sets · ${Math.round(vol).toLocaleString()} lb·reps · ↑↓ = top weight vs the previous time you did that exercise</p>`;
+        detailEl.innerHTML = lines + statLine + `<button class="btn btn-ghost btn-block danger" style="margin-top:6px;">Delete this session</button>`;
         detailEl.querySelector('.danger').addEventListener('click', () => {
           if (!confirm(`Delete the ${d} session? This removes it from your charts and PRs too.`)) return;
           ACTIVE.history.workouts = (ACTIVE.history.workouts || []).filter(x => x !== w && x.date !== w.date);
@@ -2561,6 +2645,11 @@ function init() {
     skipRestTimer(); ACTIVE_WORKOUT = null; showView('dashboard'); renderDashboard();
   });
   $('btnFinishWorkout').addEventListener('click', finishWorkout);
+  $('btnSwapCancel').addEventListener('click', () => { $('swapSheet').hidden = true; });
+  $('swapSheet').addEventListener('click', e => { if (e.target.id === 'swapSheet') $('swapSheet').hidden = true; });
+  $('btnFormClose').addEventListener('click', () => { $('formSheet').hidden = true; });
+  $('formSheet').addEventListener('click', e => { if (e.target.id === 'formSheet') $('formSheet').hidden = true; });
+  $('btnDoneClose').addEventListener('click', () => { $('doneSheet').hidden = true; });
   $('btnRestSkip').addEventListener('click', skipRestTimer);
   $('btnRestAdd30').addEventListener('click', () => addRestTime(30));
   $('prToast').addEventListener('click', function () { this.hidden = true; });

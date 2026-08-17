@@ -748,6 +748,39 @@
     </div>
   </div>
 
+  <!-- ===== EXERCISE SWAP CHOOSER ===== -->
+  <div class="sheet-backdrop" id="swapSheet" hidden>
+    <div class="sheet">
+      <h3 id="swapSheetTitle">Swap exercise</h3>
+      <p class="muted-copy" id="swapSheetSub" style="margin:0 0 12px;">Same muscle group, your equipment — pick what sounds good today.</p>
+      <div id="swapSheetList" class="switcher-list"></div>
+      <label class="swap-exclude-row"><input type="checkbox" id="swapExcludeToggle"> <span>Also hide <b id="swapExcludeName"></b> from future plans <small>(reversible in Settings)</small></span></label>
+      <button class="btn btn-ghost btn-block" id="btnSwapCancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ===== FORM GUIDE SHEET ===== -->
+  <div class="sheet-backdrop" id="formSheet" hidden>
+    <div class="sheet">
+      <h3 id="formSheetTitle">Form guide</h3>
+      <div id="formSheetSteps" class="form-steps"></div>
+      <a id="formSheetDemo" class="btn btn-secondary btn-block" target="_blank" rel="noopener" style="text-decoration:none; text-align:center;">🎬 Watch real demos ↗</a>
+      <button class="btn btn-ghost btn-block" id="btnFormClose">Close</button>
+    </div>
+  </div>
+
+  <!-- ===== SESSION COMPLETE DEBRIEF ===== -->
+  <div class="sheet-backdrop" id="doneSheet" hidden>
+    <div class="sheet" style="text-align:center;">
+      <div class="done-emoji">🎉</div>
+      <h3 id="doneTitle">Session complete</h3>
+      <div class="stat-tiles" id="doneStats" style="margin:14px 0;"></div>
+      <div id="donePRs"></div>
+      <div class="ai-result" id="doneDebrief" style="text-align:left;" hidden></div>
+      <button class="btn btn-primary btn-block" id="btnDoneClose" style="margin-top:14px;">Nice 💪</button>
+    </div>
+  </div>
+
   <!-- ===== PHOTO HISTORY LIGHTBOX ===== -->
   <div class="sheet-backdrop" id="photoLightbox" hidden>
     <div class="sheet" style="text-align:center;">
