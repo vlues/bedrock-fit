@@ -68,6 +68,7 @@ const Store = (() => {
       customExercises: [],
       supplementStack: [],
       recentProducts: [],
+      sessionOffset: 0,
       planSeed: Math.floor(Math.random() * 1000)
     };
   }
@@ -85,6 +86,7 @@ const Store = (() => {
     p.excludedExercises = p.excludedExercises || [];
     p.supplementStack = p.supplementStack || [];
     p.recentProducts = p.recentProducts || [];
+    p.sessionOffset = p.sessionOffset || 0;
     return p;
   }
   function deleteProfile(id) {

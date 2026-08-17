@@ -161,10 +161,13 @@ const Workout = (() => {
     });
   }
 
+  // sessionOffset: user-controlled "slide" through the rotation (see the
+  // Not-today button on Home) — missing a day never needs a fake logged
+  // workout to move on, and sliding is cyclical so nothing is ever lost.
   function todaysSession(profile, stalledIds) {
     const plan = buildWeekPlan(profile, stalledIds);
     const completed = (profile.history.workouts || []).length;
-    const idx = completed % plan.length;
+    const idx = (completed + (profile.sessionOffset || 0)) % plan.length;
     return plan[idx];
   }
 

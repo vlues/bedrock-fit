@@ -260,6 +260,8 @@
       <div class="card" id="readinessCard" hidden>
         <div class="card-head"><h3 data-i18n="Training load">Training load</h3><span class="badge-optional">ACWR · sports-science</span></div>
         <div id="readinessBody"></div>
+        <button class="btn btn-ghost btn-block explain-btn" data-explain="load">🧸 Explain this to me simply</button>
+        <div class="ai-result" id="explain-load" hidden></div>
       </div>
 
       <div class="card" id="householdCard" hidden>
@@ -280,6 +282,7 @@
         </div>
         <div id="todayExerciseList" class="exercise-list"></div>
         <button class="btn btn-primary btn-block" id="btnStartWorkout" data-i18n="Start workout">Start workout</button>
+        <button class="btn btn-ghost btn-block" id="btnSlideSession">↷ Not feeling this one? Slide to the next session</button>
       </div>
 
       <div class="card-grid">
@@ -402,6 +405,8 @@
         <div class="card-head"><h3 data-i18n="Muscle balance">Muscle balance</h3><span class="badge-optional">last 28 days</span></div>
         <canvas id="muscleChart" width="320" height="140"></canvas>
         <p class="muted-copy" id="muscleCaption"></p>
+        <button class="btn btn-ghost btn-block explain-btn" data-explain="muscle">🧸 Explain this to me simply</button>
+        <div class="ai-result" id="explain-muscle" hidden></div>
       </div>
 
       <div class="card">
@@ -422,6 +427,8 @@
         <canvas id="volumeChart" width="320" height="140"></canvas>
         <div id="trajectoryStats" class="scan-history"></div>
         <p class="muted-copy" id="dataMaturityNote"></p>
+        <button class="btn btn-ghost btn-block explain-btn" data-explain="trajectory">🧸 Explain this to me simply</button>
+        <div class="ai-result" id="explain-trajectory" hidden></div>
         <div id="trajectoryAiResult" class="ai-result" hidden></div>
       </div>
 
@@ -482,6 +489,8 @@
         <div class="card">
           <div class="card-head"><h3 data-i18n="Your daily targets">Your daily targets</h3><span class="badge-optional">Mifflin-St Jeor</span></div>
           <div id="nutritionTargets"></div>
+          <button class="btn btn-ghost btn-block explain-btn" data-explain="targets">🧸 Explain this to me simply</button>
+          <div class="ai-result" id="explain-targets" hidden></div>
           <button class="btn btn-ghost btn-block" id="btnWhyTargets" hidden>Why these numbers? ▾</button>
           <div id="targetExplainer" class="target-explainer" hidden></div>
         </div>

@@ -329,7 +329,7 @@ function renderTrainingForecast() {
   $('forecastHeadline').textContent = headline;
 
   const waterPct = Math.round(Nutrition.todayWaterMl(ACTIVE) / Nutrition.waterTargetMl(ACTIVE) * 100);
-  $('forecastFooter').textContent = `Humidity check: ${waterPct}% of today's water target${waterPct < 50 ? ' — strength output measurably drops when dehydrated, drink up before training' : ' 💧'}. Based on 48-72h muscle-recovery research + your load trend — a fun read on real numbers, not a prescription.`;
+  $('forecastFooter').textContent = `Humidity check: ${waterPct}% of today's water${waterPct < 50 ? ' — drink up before training' : ' 💧'}. A fun read on your real numbers, not a prescription.`;
 }
 
 /* ---------------------------------------------------------------- */
@@ -362,7 +362,7 @@ function renderWeekStrip() {
   });
 
   // remaining plan labels draped over remaining suggested (unlogged) days
-  let cursor = completed % plan.length;
+  let cursor = (completed + (ACTIVE.sessionOffset || 0)) % plan.length;
   const upcomingByDay = {};
   for (let wd = todayWd; wd < 7; wd++) {
     if (loggedByDay[wd] != null) continue;
@@ -386,7 +386,7 @@ function renderWeekStrip() {
 
   const trainedToday = loggedByDay[todayWd] != null;
   $('weekStripNote').textContent = trainedToday
-    ? `Today's banked ✓ — next up: ${plan[completed % plan.length].label}. Rest until then is part of the program, not a gap in it.`
+    ? `Today's banked ✓ — next up: ${plan[(completed + (ACTIVE.sessionOffset || 0)) % plan.length].label}. Rest until then is part of the program, not a gap in it.`
     : upcomingByDay[todayWd]
       ? `Today: ${upcomingByDay[todayWd]}. Miss a day? Nothing breaks — the plan just slides forward to your next session.`
       : 'Rest day — this is when the muscle you stimulated actually gets built. Training anyway is fine too; the plan adapts either way.';
@@ -965,6 +965,75 @@ function tourNext() {
   if (TOUR_STEP >= TOUR_STEPS.length - 1) { endTour(); return; }
   TOUR_STEP++;
   renderTourStep();
+}
+
+/* ---------------------------------------------------------------- */
+/* "Explain this to me simply" — every data-heavy card gets a 🧸       */
+/* button that turns its numbers into two sentences a total beginner   */
+/* can act on. Claude writes it from the card's real figures when      */
+/* signed in; a hand-written plain-English fallback covers signed-out. */
+/* Cached per day so re-taps are free.                                 */
+/* ---------------------------------------------------------------- */
+const EXPLAINERS = {
+  targets: {
+    context: () => {
+      const t = Nutrition.dailyTarget(ACTIVE);
+      return t ? `Daily nutrition targets: ${t.calories} kcal, ${t.proteinG}g protein, ${t.carbG}g carbs, ${t.fatG}g fat. Goal: ${ACTIVE.goal}. Expected change ~${t.weeklyRateLb} lb/week.` : null;
+    },
+    fallback: () => {
+      const t = Nutrition.dailyTarget(ACTIVE);
+      if (!t) return 'Add your height and weight in Settings first — then this becomes your daily food budget.';
+      return `Think of it as a daily budget: about ${t.calories} calories, and try to hit ${t.proteinG}g of protein (meat, eggs, yogurt, beans). Get close most days and your body does the rest — perfect days aren't required.`;
+    }
+  },
+  load: {
+    context: () => {
+      const r = Trajectory.acwr(ACTIVE);
+      return r.hasData ? `Training load gauge (ACWR): ratio ${r.ratio}, zone "${r.zone}". This compares last week's training amount to the recent month's average.` : null;
+    },
+    fallback: () => {
+      const r = Trajectory.acwr(ACTIVE);
+      if (!r.hasData) return 'Log a few workouts and this dial shows whether you\'re doing more or less than your body is used to.';
+      const simple = { 'undertraining': 'You\'re training a bit less than your body is used to — totally fine, and there\'s room to add.', 'sweet-spot': 'You\'re training just the right amount — enough to grow, not so much you can\'t recover. Keep doing this.', 'caution': 'You ramped up fast recently. Not dangerous, just don\'t pile on even more this week.', 'high-risk': 'You did a lot more than your body is used to. An easier day or a rest day now helps more than pushing.' };
+      return simple[r.zone] || '';
+    }
+  },
+  muscle: {
+    context: () => {
+      const sets = Insights.weeklySetsByMuscle(ACTIVE);
+      const s = Object.entries(sets).map(([m, n]) => `${m} ${n} sets`).join(', ');
+      return s ? `Weekly training sets by muscle group: ${s}. (Research band: roughly 10-20 hard sets per muscle per week drives growth.)` : null;
+    },
+    fallback: () => 'These bars show which muscles get the most work. If one bar is always tiny, that muscle is being skipped — the plan will help even it out.'
+  },
+  trajectory: {
+    context: () => {
+      const proj = Trajectory.project(ACTIVE);
+      return `Trajectory: ${(ACTIVE.history.workouts || []).length} sessions logged, 4-week plan adherence ${proj.adherencePct}%, projected ${proj.weeksAhead}-week weight change ${proj.lowRange} to ${proj.highRange} lb. Goal: ${ACTIVE.goal}.`;
+    },
+    fallback: () => 'This chart guesses where you\'re headed if you keep doing what you\'re doing now. More logged workouts = a smarter guess. The single biggest lever is simply showing up.'
+  }
+};
+
+async function explainSimply(kind, btn) {
+  const spec = EXPLAINERS[kind];
+  const out = $('explain-' + kind);
+  if (!spec || !out) return;
+  if (!out.hidden) { out.hidden = true; return; } // tap again to tuck it away
+  const cacheKey = `bedrock_explain_${kind}_${ACTIVE.id}_${new Date().toDateString()}`;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) { out.textContent = cached; out.hidden = false; return; }
+  const ctx = spec.context();
+  if (!Sync.isLoggedIn() || !ctx) { out.textContent = spec.fallback(); out.hidden = false; return; }
+  btn.disabled = true;
+  out.hidden = false;
+  out.textContent = 'Putting it in plain words…';
+  const sys = BEDROCK_PERSONA + ' Explain the given numbers to someone who has NEVER worked out or tracked food before. Grade-5 vocabulary, zero jargon (no "ACWR", "adherence", "macros" — say what they mean instead), max 2 short sentences plus ONE simple thing to do. Warm, not condescending. Under 45 words.';
+  const res = await BedrockAPI.chat([{ role: 'user', content: ctx }], sys, 120);
+  btn.disabled = false;
+  const text = res.ok ? res.text : spec.fallback();
+  out.textContent = text;
+  if (res.ok) localStorage.setItem(cacheKey, text);
 }
 
 // Small non-blocking notice, reusing the PR toast chrome — alert() freezes
@@ -1712,7 +1781,7 @@ function macroBarHTML(label, logged, target, unit, opts = {}) {
 function renderNutrition() {
   const target = Nutrition.dailyTarget(ACTIVE);
   $('nutritionTargets').innerHTML = target ? `
-    <div class="target-hero"><span class="target-hero-num">${target.calories.toLocaleString()}</span><span class="target-hero-unit">kcal / day</span></div>
+    <div class="target-hero"><span class="target-hero-num" id="targetHeroNum">${target.calories.toLocaleString()}</span><span class="target-hero-unit">kcal / day</span></div>
     <div class="target-macro-row">
       <div class="target-macro"><b>${target.proteinG}g</b><span>protein</span></div>
       <div class="target-macro"><b>${target.carbG}g</b><span>carbs</span></div>
@@ -1721,6 +1790,16 @@ function renderNutrition() {
     <p class="muted-copy" style="margin:10px 0 0;">${target.goalLabel.charAt(0).toUpperCase() + target.goalLabel.slice(1)} — expect roughly <b>${target.weeklyRateLb > 0 ? '+' : ''}${target.weeklyRateLb} lb/week</b> at this intake. Adjust off real results after 2-3 weeks, not day one.</p>
   ` : '<p class="muted-copy">Add your height, weight, and age in Settings to unlock your targets.</p>';
   $('btnWhyTargets').hidden = !target;
+  // count-up on the headline number — pure delight, respects reduced motion
+  if (target && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+    const el = $('targetHeroNum');
+    const to = target.calories, t0 = performance.now(), dur = 700;
+    (function tick(t) {
+      const k = Math.min(1, (t - t0) / dur);
+      el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3))).toLocaleString();
+      if (k < 1) requestAnimationFrame(tick);
+    })(t0);
+  }
   if (target) {
     $('targetExplainer').innerHTML = `
       <div class="explain-step"><b>1 · Resting burn (BMR): ${target.bmr.toLocaleString()} kcal.</b> Mifflin-St Jeor — the most validated resting-metabolism equation in the sports-nutrition literature — from your height, weight, age, and sex.</div>
@@ -1750,7 +1829,7 @@ function renderNutrition() {
   const waterPct = Math.min(100, Math.round(waterToday / waterTarget * 100));
   $('waterBarFill').style.width = waterPct + '%';
   $('waterBadge').textContent = waterPct >= 100 ? 'hydrated ✓' : `${waterPct}%`;
-  $('waterCaption').textContent = `${waterToday.toLocaleString()} / ${waterTarget.toLocaleString()} ml — ~35 ml per kg bodyweight plus a training buffer. Hydration measurably affects strength output and perceived effort.`;
+  $('waterCaption').textContent = `${waterToday.toLocaleString()} / ${waterTarget.toLocaleString()} ml — even mild dehydration makes weights feel heavier.`;
 
   const mealWrap = $('mealList');
   mealWrap.innerHTML = '';
@@ -2454,6 +2533,15 @@ function init() {
   applyStoredTheme();
 
   $('btnStartWorkout').addEventListener('click', startWorkout);
+  $('btnSlideSession').addEventListener('click', () => {
+    // Cyclical, guilt-free: sliding rotates the plan forward without a fake
+    // logged workout — keep tapping and it comes back around.
+    ACTIVE.sessionOffset = (ACTIVE.sessionOffset || 0) + 1;
+    saveActive();
+    renderDashboard();
+    const next = Workout.todaysSession(ACTIVE, Insights.stalledExercises(ACTIVE));
+    showToast(`↷ Slid to ${next.label} — nothing lost, the rotation just moved.`);
+  });
   $('navFab').addEventListener('click', startWorkout);
   qs('[data-close-workout]').addEventListener('click', () => {
     // Leaving mid-session throws the whole log away — worth one question if
@@ -2589,6 +2677,7 @@ function init() {
     if (target === 'chat') renderChat();
   }));
 
+  qsa('[data-explain]').forEach(btn => btn.addEventListener('click', () => explainSimply(btn.dataset.explain, btn)));
   $('btnTourNext').addEventListener('click', tourNext);
   $('btnTourSkip').addEventListener('click', endTour);
   $('btnReplayTour').addEventListener('click', startTour);
