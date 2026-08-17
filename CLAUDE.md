@@ -130,5 +130,17 @@ are in `README.md`.
   that's exactly what caused two broken rounds during this integration's own build. Also
   requires the backend (Google's OAuth client is confidential — needs a client secret — so
   this can never go back to being a pure-client-side integration like the old Fitbit one).
-- No food database / barcode scanning — meal calories are either typed in or a rough
-  Claude vision estimate the user confirms. Don't overstate accuracy here.
+- Barcode scanning (js/barcode.js) uses OpenFoodFacts (label-exact per-100g macros) with
+  native BarcodeDetector live scanning where available and typed-number fallback on iOS
+  Safari. Photo/text meal estimates remain rough Claude guesses the user confirms in the
+  review sheet — per-item portion-confidence is surfaced honestly; don't overstate accuracy.
+- Web push (sw.js + js/push.js + the worker's /api/push/* + daily cron) sends a
+  once-a-day personal AI brief notification. PAYLOADLESS design on purpose: the cron
+  sends an empty VAPID-authed push; the service worker fetches /api/push/brief itself
+  with a token stored in IndexedDB at subscribe time — no RFC 8291 payload encryption
+  anywhere, don't "add" it without reason. Requires ../setup-push.sh once on the backend,
+  and on iOS (16.4+) only works when the app is added to the Home Screen. Built and
+  statically verified but NOT yet tested end-to-end on a real iPhone — that's the first
+  thing to check if notifications misbehave. Dynamic Island / Live Activities / widgets
+  are native-iOS-only (ActivityKit/WidgetKit) — impossible from this PWA; a SwiftUI
+  companion app is the only path, don't burn time looking for a web API that doesn't exist.

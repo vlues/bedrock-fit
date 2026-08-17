@@ -407,6 +407,12 @@ function renderTodayChecklist() {
   // The play button breathes until today's session is banked — a quiet
   // heartbeat that says "I'm ready when you are," gone once you've trained.
   $('navFab').classList.toggle('attention', !trained);
+  // Live app-icon badge (installed PWAs, iOS 16.4+): the number of daily
+  // habits still open — visible from the home screen without opening a thing.
+  if ('setAppBadge' in navigator) {
+    const remaining = (trained ? 0 : 1) + (meals > 0 ? 0 : 1) + (waterPct >= 100 ? 0 : 1);
+    try { remaining > 0 ? navigator.setAppBadge(remaining) : navigator.clearAppBadge(); } catch (e) { /* not installed */ }
+  }
 }
 
 // Last 7 days vs the 7 before — momentum, not just totals. Pure math from
@@ -1012,6 +1018,61 @@ function endTour() {
   localStorage.setItem(TOUR_DONE_KEY, '1');
   window.removeEventListener('resize', positionTourStep);
   maybeShowDailyBrief(); // the brief takes the baton right after the tour
+}
+
+/* ---------------------------------------------------------------- */
+/* Push auto-enroll: offered ONCE, right after the daily brief closes  */
+/* (a natural moment to say "want this on your lock screen?"). One tap */
+/* on Turn On is the only thing Apple lets the user delegate — every-   */
+/* thing after is automatic: the backend reads their synced data daily, */
+/* writes a personal brief with Claude, and pushes it.                  */
+/* ---------------------------------------------------------------- */
+const PUSH_OFFERED_KEY = 'bedrock_push_offered';
+
+function maybeOfferPush() {
+  if (localStorage.getItem(PUSH_OFFERED_KEY)) return;
+  if (localStorage.getItem('bedrock_push_enabled')) return;
+  if (!Push.available() || !Sync.isLoggedIn()) return;
+  localStorage.setItem(PUSH_OFFERED_KEY, '1');
+  $('pushSheet').hidden = false;
+}
+
+async function pushEnableClick(statusEl) {
+  const res = await Push.enable();
+  const msgs = {
+    denied: 'Notifications are blocked — enable them for Bedrock in iOS Settings → Notifications.',
+    not_signed_in: 'Sign in under Settings → Sync first.',
+    server_not_configured: 'The backend doesn\'t have push set up yet — run cloudflare-worker/setup-push.sh once.',
+    unsupported: 'This browser can\'t do web push — on iPhone, add Bedrock to your Home Screen first.'
+  };
+  if (res.ok) showToast('🔔 Done — your brief will arrive each morning.');
+  else showToast(msgs[res.error] || 'Couldn\'t turn notifications on — check your connection and try again.', 4500);
+  if (statusEl) renderPushCard();
+  return res.ok;
+}
+
+async function renderPushCard() {
+  const btn = $('btnPushToggle');
+  const status = $('pushStatus');
+  if (!Push.supported()) {
+    btn.hidden = true;
+    status.textContent = 'This browser doesn\'t support web push.';
+    return;
+  }
+  if (Push.isIOS() && !Push.isStandalone()) {
+    btn.hidden = true;
+    status.textContent = 'Add Bedrock to your Home Screen first (Share → Add to Home Screen), then this unlocks.';
+    return;
+  }
+  btn.hidden = false;
+  const on = await Push.isEnabled();
+  btn.textContent = on ? 'Turn off notifications' : 'Turn on daily brief notifications';
+  status.textContent = on ? 'On — your personal brief arrives each morning, even with the app closed.' : (Sync.isLoggedIn() ? 'Off.' : 'Sign in under Sync first — the brief is written from your synced data.');
+  btn.onclick = async () => {
+    if (await Push.isEnabled()) { await Push.disable(); showToast('Notifications off.'); }
+    else await pushEnableClick(status);
+    renderPushCard();
+  };
 }
 function tourNext() {
   if (TOUR_STEP >= TOUR_STEPS.length - 1) { endTour(); return; }
@@ -2416,6 +2477,7 @@ async function sendChat() {
 /* ---------------------------------------------------------------- */
 function renderSettings() {
   renderSyncPanel();
+  renderPushCard();
   qs('#settingsUnitWeight').querySelectorAll('.unit-opt').forEach(b => b.classList.toggle('active', b.dataset.unit === ACTIVE.unitWeight));
   qsa('#settingsLang .unit-opt').forEach(b => b.classList.toggle('active', b.dataset.lang === I18N.lang()));
   renderProfileManageList();
@@ -2452,11 +2514,16 @@ async function syncSignInClick() {
   const syncRes = await Sync.syncAfterLogin(ACTIVE);
   if (syncRes.applied) { ACTIVE = Store.getActiveProfile(); renderDashboard(); }
   renderSyncPanel();
+  renderPushCard();
+  Push.refreshCreds();
+  maybeOfferPush(); // fresh sign-in is the other natural moment to offer the lock-screen brief
 }
 
 async function syncSignOutClick() {
   await Sync.logout();
+  await Push.disable(); // a signed-out device shouldn't keep receiving personal pushes
   renderSyncPanel();
+  renderPushCard();
 }
 
 async function syncNowClick() {
@@ -2793,7 +2860,9 @@ function init() {
   $('foodPhotoInput').addEventListener('change', e => { if (e.target.files[0]) scanFoodPhoto(e.target.files[0]); e.target.value = ''; });
   $('btnEstimateText').addEventListener('click', estimateTextClick);
   $('mealQuickText').addEventListener('keydown', e => { if (e.key === 'Enter') estimateTextClick(); });
-  $('btnBriefClose').addEventListener('click', () => { $('briefSheet').hidden = true; });
+  $('btnBriefClose').addEventListener('click', () => { $('briefSheet').hidden = true; maybeOfferPush(); });
+  $('btnPushEnable').addEventListener('click', async () => { $('pushSheet').hidden = true; await pushEnableClick(); });
+  $('btnPushLater').addEventListener('click', () => { $('pushSheet').hidden = true; });
   $('briefSheet').addEventListener('click', e => { if (e.target.id === 'briefSheet') $('briefSheet').hidden = true; });
   $('insightCard').addEventListener('click', openDailyBrief);
   $('insightCard').style.cursor = 'pointer';
@@ -2896,6 +2965,13 @@ function init() {
     Sync.pull().then(res => {
       if (res.applied) { ACTIVE = Store.getActiveProfile(); renderDashboard(); }
     });
+  }
+
+  // Offline/instant-open + push receiver. Registration is idempotent; the
+  // token handed to the SW is refreshed on every boot so the daily push
+  // fetch never dies of a stale credential.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(() => Push.refreshCreds()).catch(() => { /* app works fine without it */ });
   }
 }
 

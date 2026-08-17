@@ -682,10 +682,17 @@ a{ color: var(--accent-text); }
 
 .water-bar{ height:14px; border-radius:999px; background: var(--ring-track); overflow:hidden; }
 .water-bar-fill{
-  height:100%; border-radius:999px; min-width:3px;
+  height:100%; border-radius:999px; min-width:3px; position:relative; overflow:hidden;
   background: linear-gradient(90deg, oklch(0.62 0.09 230), oklch(0.72 0.1 220));
   transition: width .6s var(--ease);
 }
+/* a slow light band drifting across the water — alive, not static */
+.water-bar-fill::after{
+  content:''; position:absolute; inset:0;
+  background: linear-gradient(100deg, transparent 30%, oklch(1 0 0 / 0.35) 50%, transparent 70%);
+  animation: waterGlint 3.5s linear infinite;
+}
+@keyframes waterGlint{ from{ transform:translateX(-100%);} to{ transform:translateX(100%);} }
 
 /* ---------- progress stat tiles ---------- */
 .stat-tiles{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }

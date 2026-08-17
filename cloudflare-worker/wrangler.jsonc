@@ -3,6 +3,10 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-16",
   "observability": { "enabled": true },
+  // Daily brief push notifications: 06:00 UTC = 8am Madrid (CEST). The cron
+  // only does anything once setup-push.sh has been run (VAPID secrets set)
+  // and at least one device has subscribed.
+  "triggers": { "crons": ["0 6 * * *"] },
   "vars": {
     // Rewritten automatically by deploy-backend.sh to your GitHub Pages URL
     // (and localhost, for testing a local copy against the live API).

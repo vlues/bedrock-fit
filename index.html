@@ -640,6 +640,13 @@
       </div>
 
       <div class="card">
+        <h3>🔔 Notifications</h3>
+        <p class="muted-copy" id="pushExplainer">A daily lock-screen brief written from your own data — your streak, targets, and today's session. On iPhone this needs Bedrock added to the Home Screen first (Share → Add to Home Screen), then one tap here.</p>
+        <button class="btn btn-secondary btn-block" id="btnPushToggle">Turn on daily brief notifications</button>
+        <p class="key-status" id="pushStatus"></p>
+      </div>
+
+      <div class="card">
         <h3>Idioma / Language</h3>
         <div class="unit-toggle" id="settingsLang">
           <button type="button" class="unit-opt" data-lang="en">English</button>
@@ -751,6 +758,17 @@
     </div>
   </div>
 
+  <!-- ===== PUSH ENROLL (one tap, once, then it's all automatic) ===== -->
+  <div class="sheet-backdrop" id="pushSheet" hidden>
+    <div class="sheet" style="text-align:center;">
+      <div class="done-emoji">🔔</div>
+      <h3>Get briefed without opening the app</h3>
+      <p class="tour-copy" style="max-width:34ch;">One tap and Bedrock's daily brief lands on your lock screen each morning — written from your own training and food data. Nothing else to do, ever.</p>
+      <button class="btn btn-primary btn-block" id="btnPushEnable">Turn on notifications</button>
+      <button class="btn btn-ghost btn-block" id="btnPushLater">Maybe later</button>
+    </div>
+  </div>
+
   <!-- ===== DAILY BRIEF (auto-appears once per day) ===== -->
   <div class="sheet-backdrop" id="briefSheet" hidden>
     <div class="sheet">
@@ -839,6 +857,7 @@
 <script src="js/supplements.js"></script>
 <script src="js/chart.js"></script>
 <script src="js/scan.js"></script>
+<script src="js/push.js"></script>
 <script src="js/barcode.js"></script>
 <script src="js/camera.js"></script>
 <script src="js/trajectory.js"></script>

@@ -58,3 +58,16 @@ CREATE TABLE IF NOT EXISTS oauth_states (
   user_id INTEGER NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL
 );
+
+-- Web Push subscriptions (daily AI brief notifications). Payloadless-push
+-- design: the endpoint URL is all the cron needs — no p256dh/auth keys are
+-- stored because no encrypted payload is ever sent; the service worker
+-- fetches the personal brief itself over the normal authed API when the
+-- (empty) push wakes it. Dead endpoints (404/410 from the push service)
+-- are pruned automatically by the cron.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);

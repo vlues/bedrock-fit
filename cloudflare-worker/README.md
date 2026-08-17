@@ -119,3 +119,19 @@ every local save. Since each account maps to exactly one person's one
 profile — never shared editing — there's no real multi-writer conflict to
 resolve, just "which device wrote most recently," which is what this gives
 you.
+
+## Push notifications (daily AI brief)
+
+One-time setup: `./setup-push.sh` — generates a VAPID keypair, stores it as
+worker secrets (`VAPID_PRIVATE_JWK`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`),
+applies the `push_subscriptions` table, and redeploys with the daily cron
+(`wrangler.jsonc` → `triggers.crons`, default 06:00 UTC = 8am Madrid).
+
+How it works: the cron sends an **empty** VAPID-authenticated push to every
+subscription (no payload → no Web Push encryption needed). Each device's
+service worker wakes, calls `GET /api/push/brief` with its own session
+token, and shows the personal, Claude-written notification. Dead endpoints
+(404/410) are pruned automatically. Endpoints: `GET /api/push/vapid-public-key`,
+`POST /api/push/subscribe`, `POST /api/push/unsubscribe`, `GET /api/push/brief`
+(all session-authed). On iOS this requires the app added to the Home Screen
+(iOS 16.4+); tested statically, not yet end-to-end on a device.

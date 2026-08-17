@@ -468,6 +468,151 @@ async function handleGoogleHealthActivities(request, env, user, cors) {
 }
 
 // ---------------------------------------------------------------------
+// Web Push — daily AI brief notifications
+//
+// Payloadless design (deliberate): the cron sends an EMPTY push (just a
+// VAPID-authenticated POST to the subscription endpoint — RFC 8292), which
+// sidesteps Web Push payload encryption (RFC 8291) entirely. The service
+// worker wakes on the push and fetches /api/push/brief itself with the
+// session token it holds, so the notification content is fully personal
+// without a single encrypted byte in transit beyond normal TLS.
+//
+// Setup: run ../setup-push.sh once — it generates a VAPID keypair and sets
+// VAPID_PUBLIC_KEY (base64url, uncompressed P-256 point) and
+// VAPID_PRIVATE_JWK (JSON) as worker secrets, plus VAPID_SUBJECT.
+// The cron schedule lives in wrangler.jsonc ("triggers").
+// ---------------------------------------------------------------------
+function pushConfigured(env) {
+  return !!(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_JWK);
+}
+
+function b64url(bytes) {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// RFC 8292 VAPID: ES256 JWT over {aud: push-service origin, exp, sub}.
+async function vapidAuthHeader(env, endpointOrigin) {
+  const jwk = JSON.parse(env.VAPID_PRIVATE_JWK);
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const enc = new TextEncoder();
+  const header = b64url(enc.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
+  const payload = b64url(enc.encode(JSON.stringify({
+    aud: endpointOrigin,
+    exp: Math.floor(Date.now() / 1000) + 12 * 3600,
+    sub: env.VAPID_SUBJECT || 'mailto:bedrock@example.com',
+  })));
+  const signingInput = `${header}.${payload}`;
+  // WebCrypto ECDSA returns raw r||s (64 bytes) — exactly what JWS ES256 wants.
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, enc.encode(signingInput));
+  return `vapid t=${signingInput}.${b64url(new Uint8Array(sig))}, k=${env.VAPID_PUBLIC_KEY}`;
+}
+
+async function sendEmptyPush(env, endpoint) {
+  const origin = new URL(endpoint).origin;
+  const auth = await vapidAuthHeader(env, origin);
+  return fetch(endpoint, {
+    method: 'POST',
+    headers: { TTL: '86400', Urgency: 'normal', Authorization: auth },
+  });
+}
+
+async function handlePushVapidKey(env, cors) {
+  if (!pushConfigured(env)) return json({ publicKey: null }, 200, cors);
+  return json({ publicKey: env.VAPID_PUBLIC_KEY }, 200, cors);
+}
+
+async function handlePushSubscribe(request, env, user, cors) {
+  const body = await request.json().catch(() => ({}));
+  const endpoint = String(body.endpoint || '');
+  if (!/^https:\/\//.test(endpoint) || endpoint.length > 1024) return err('Invalid endpoint', 400, cors);
+  await env.DB.prepare(
+    `INSERT INTO push_subscriptions (endpoint, user_id, created_at) VALUES (?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id`
+  ).bind(endpoint, user.user_id, Date.now()).run();
+  return json({ ok: true }, 200, cors);
+}
+
+async function handlePushUnsubscribe(request, env, user, cors) {
+  const body = await request.json().catch(() => ({}));
+  await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?')
+    .bind(String(body.endpoint || ''), user.user_id).run();
+  return json({ ok: true }, 200, cors);
+}
+
+// The personal notification text. Facts are extracted server-side from the
+// user's synced profile blob; Claude turns them into two short lines (with
+// a plain rule-based fallback so the notification always has something
+// honest to say even if the AI call fails).
+function briefFactsFromProfile(profileJson) {
+  let p;
+  try { p = JSON.parse(profileJson); } catch (e) { return null; }
+  if (!p || !p.history) return null;
+  const now = Date.now(), day = 24 * 3600 * 1000;
+  const workouts = p.history.workouts || [];
+  const week = workouts.filter((w) => w.date > now - 7 * day).length;
+  const last = workouts.length ? workouts[workouts.length - 1] : null;
+  const daysSince = last ? Math.round((now - last.date) / day) : null;
+  const checkins = (p.history.checkins || []).filter((c) => c.weight != null);
+  const weightDelta = checkins.length >= 2
+    ? Math.round((checkins[checkins.length - 1].weight - checkins[0].weight) * 10) / 10 : null;
+  return {
+    name: p.name || 'athlete', goal: p.goal || 'general', planned: Number(p.days) || 3,
+    sessionsThisWeek: week, daysSinceLast: daysSince, lastLabel: last ? (last.label || 'a session') : null,
+    weightDelta,
+  };
+}
+
+function ruleBasedBrief(f) {
+  if (!f) return { title: 'Bedrock ☀️', body: 'Your daily brief is ready — tap for today\'s plan.' };
+  if (f.daysSinceLast == null) return { title: `Morning, ${f.name} ☀️`, body: 'Day one is the hardest rep. Today\'s session is built and waiting.' };
+  if (f.sessionsThisWeek >= f.planned) return { title: `Morning, ${f.name} 🎯`, body: `Full week already banked (${f.sessionsThisWeek}/${f.planned}). Recovery day or bonus session — your call.` };
+  if (f.daysSinceLast >= 3) return { title: `Morning, ${f.name} ☀️`, body: `${f.daysSinceLast} days since ${f.lastLabel}. The streak only needs one session — today's is ready.` };
+  return { title: `Morning, ${f.name} ☀️`, body: `${f.sessionsThisWeek}/${f.planned} sessions this week. Muscles rebuilt from ${f.lastLabel} — good day to train.` };
+}
+
+async function handlePushBrief(env, user, cors) {
+  const row = await env.DB.prepare('SELECT data FROM profile_data WHERE user_id = ?').bind(user.user_id).first();
+  const facts = row ? briefFactsFromProfile(row.data) : null;
+  const fallback = ruleBasedBrief(facts);
+  if (!env.ANTHROPIC_API_KEY || !facts) return json(fallback, 200, cors);
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5', // notification copy: fast + cheap is right
+        max_tokens: 100,
+        system: 'Write ONE lock-screen notification line (max 20 words) for a fitness app user, from their real data. Concrete number first, then one nudge. Warm, zero hype, no emoji, no greeting.',
+        messages: [{ role: 'user', content: JSON.stringify(facts) }],
+      }),
+    });
+    if (!res.ok) return json(fallback, 200, cors);
+    const data = await res.json();
+    const text = (data.content || []).map((b) => b.text || '').join(' ').trim();
+    return json(text ? { title: `Morning, ${facts.name} ☀️`, body: text } : fallback, 200, cors);
+  } catch (e) {
+    return json(fallback, 200, cors);
+  }
+}
+
+// Cron: one pass a day — send an empty push to every subscription, prune
+// the dead ones. Each user's SW then fetches its own personal brief.
+async function runDailyPush(env) {
+  if (!pushConfigured(env)) return;
+  const { results } = await env.DB.prepare('SELECT endpoint FROM push_subscriptions').all();
+  for (const row of results || []) {
+    try {
+      const res = await sendEmptyPush(env, row.endpoint);
+      if (res.status === 404 || res.status === 410) {
+        await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(row.endpoint).run();
+      }
+    } catch (e) { /* one bad endpoint must not stop the rest */ }
+  }
+}
+
+// ---------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------
 export default {
@@ -526,10 +671,27 @@ export default {
       if (pathname === '/api/google-health/disconnect' && method === 'POST') {
         return await handleGoogleHealthDisconnect(env, user, cors);
       }
+      if (pathname === '/api/push/vapid-public-key' && method === 'GET') {
+        return await handlePushVapidKey(env, cors);
+      }
+      if (pathname === '/api/push/subscribe' && method === 'POST') {
+        return await handlePushSubscribe(request, env, user, cors);
+      }
+      if (pathname === '/api/push/unsubscribe' && method === 'POST') {
+        return await handlePushUnsubscribe(request, env, user, cors);
+      }
+      if (pathname === '/api/push/brief' && method === 'GET') {
+        return await handlePushBrief(env, user, cors);
+      }
 
       return err('Not found', 404, cors);
     } catch (e) {
       return err(`Server error: ${e.message}`, 500, cors);
     }
+  },
+
+  // Cron (see wrangler.jsonc "triggers") — the daily brief push fan-out.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runDailyPush(env));
   },
 };
