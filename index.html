@@ -801,6 +801,7 @@
         <h3 id="briefGreeting">Good morning</h3>
         <p class="muted-copy" id="briefDate" style="margin:2px 0 0;"></p>
       </div>
+      <div class="brief-stats" id="briefStats"></div>
       <div class="ai-result" id="briefAiLine" hidden style="margin:12px 0 0;"></div>
       <div id="briefSections"></div>
       <button class="btn btn-primary btn-block" id="btnBriefClose" style="margin-top:14px;">Let's get it 💪</button>
@@ -810,8 +811,12 @@
   <!-- ===== SHARE CARD (canvas-rendered, posts anywhere) ===== -->
   <div class="sheet-backdrop" id="shareCardSheet" hidden>
     <div class="sheet" style="text-align:center;">
-      <h3 style="margin-bottom:12px;">Your share card</h3>
-      <img id="shareCardPreview" alt="Share card preview" style="width:100%; border-radius:16px; display:block; box-shadow: 0 12px 34px oklch(0 0 0 / 0.35);">
+      <h3 style="margin-bottom:10px;">Your share card</h3>
+      <div class="chip-row" style="justify-content:center; margin-bottom:12px;">
+        <button class="chip active" data-cardfmt="story">📱 Story · Snap / IG</button>
+        <button class="chip" data-cardfmt="post">🖼 Post · feed</button>
+      </div>
+      <img id="shareCardPreview" alt="Share card preview" style="width:64%; margin:0 auto; border-radius:16px; display:block; box-shadow: 0 12px 34px oklch(0 0 0 / 0.35);">
       <div class="btn-row" style="margin-top:14px;">
         <button class="btn btn-ghost" id="btnShareCardClose">Close</button>
         <button class="btn btn-primary" id="btnShareCardPost">Share it 📤</button>

@@ -1002,6 +1002,7 @@ const TOUR_STEPS = [
   { target: '.navbtn[data-nav="progress"]', icon: '📈', title: 'Proof you\'re changing', copy: 'Then-vs-now photos with your stats on them, weight and strength trends, trophies you actually earned, and every past workout\'s full story.' },
   { target: '.navbtn[data-nav="chat"]', icon: '💬', title: 'Ask anything', copy: 'A coach that reads YOUR numbers before answering — "am I on track?", "¿qué como ahora?". And the 🧸 buttons around the app explain any chart in plain words.' },
   { target: '#insightCard', icon: '☀️', title: 'It briefs you daily', copy: 'First open each day: what to train, how recovered you are, what to eat, one focus. Turn on notifications and it lands on your lock screen — app closed.' },
+  { target: null, icon: '📤', title: 'Brag responsibly', copy: 'One tap turns your week into a share card sized for Snapchat and IG Stories — every number from your real logs. Progress → Your week → Share.' },
   { target: '#btnSwitchProfile', icon: '👥', title: 'Bring your partner', copy: 'This avatar adds or switches profiles — separate plans, separate logs, one app. That\'s everything. Go lift 💪' }
 ];
 let TOUR_STEP = 0;
@@ -1047,6 +1048,11 @@ function startTour() {
 }
 function renderTourStep() {
   const step = TOUR_STEPS[TOUR_STEP];
+  // restart the entrance animations so every step pops, not just the first
+  const tip = $('coachTip'), icon = $('tourIcon');
+  tip.style.animation = 'none'; icon.style.animation = 'none';
+  void tip.offsetWidth;
+  tip.style.animation = ''; icon.style.animation = 'popIn .5s var(--ease-bounce) both';
   $('tourIcon').textContent = step.icon;
   $('tourTitle').textContent = step.title;
   $('tourCopy').textContent = step.copy;
@@ -1140,8 +1146,13 @@ function rr(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 
-function buildShareCardCanvas() {
-  const W = 1080, H = 1350;
+// format: 'story' (1080×1920, Snapchat/IG Stories — content inside the safe
+// zone so platform UI never covers it) or 'post' (1080×1350 feed 4:5).
+function buildShareCardCanvas(format = 'story') {
+  const story = format === 'story';
+  const W = 1080, H = story ? 1920 : 1350;
+  const TOP = story ? 250 : 0;      // Stories overlay ~250px top (camera/name)
+  const BOTTOM = story ? 230 : 0;   // and ~230px bottom (reply bar)
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
@@ -1157,22 +1168,28 @@ function buildShareCardCanvas() {
     g.addColorStop(0, c); g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   };
-  glow(W * 0.85, H * 0.1, 500, 'rgba(197,122,80,0.28)');
-  glow(W * 0.1, H * 0.9, 520, 'rgba(122,138,84,0.22)');
+  glow(W * 0.85, TOP + 130, 500, 'rgba(197,122,80,0.28)');
+  glow(W * 0.1, H - BOTTOM - 200, 520, 'rgba(122,138,84,0.22)');
+  // floating glass dots for story-energy
+  [[0.9, 0.35, 26], [0.08, 0.28, 16], [0.82, 0.72, 20], [0.14, 0.62, 12]].forEach(([fx, fy, r]) => {
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.beginPath(); ctx.arc(W * fx, H * fy, r, 0, Math.PI * 2); ctx.fill();
+  });
 
   // header
+  const hy = TOP + 110;
   ctx.fillStyle = 'rgba(244,237,224,0.55)';
   ctx.font = `600 34px ${sans}`;
   ctx.letterSpacing = '10px';
-  ctx.fillText('B E D R O C K', 64, 110);
+  ctx.fillText('B E D R O C K', 64, hy);
   ctx.letterSpacing = '0px';
   ctx.fillStyle = '#f4ede0';
-  ctx.font = `400 92px ${serif}`;
+  ctx.font = `400 ${story ? 104 : 92}px ${serif}`;
   const who = (ACTIVE.name || 'My').split(' ')[0];
-  ctx.fillText(`${who}${/s$/i.test(who) ? '’' : '’s'} training week`, 64, 226);
+  ctx.fillText(`${who}${/s$/i.test(who) ? '’' : '’s'} training week`, 64, hy + 120);
   ctx.fillStyle = 'rgba(244,237,224,0.55)';
   ctx.font = `500 34px ${sans}`;
-  ctx.fillText(new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }), 64, 284);
+  ctx.fillText(new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }), 64, hy + 178);
 
   // gather the facts
   const now = Date.now(), week = 7 * 24 * 3600 * 1000;
@@ -1195,8 +1212,8 @@ function buildShareCardCanvas() {
   if (wDelta != null) stats.push({ big: `${wDelta > 0 ? '+' : ''}${wDelta}`, label: 'lb since day one', sub: ACTIVE.goal === 'fatloss' ? (wDelta < 0 ? 'cutting, on plan' : 'trend to watch') : (wDelta >= 0 ? 'building' : 'leaning out') });
   stats.push({ big: `${(ACTIVE.history.meals || []).length}`, label: 'meals logged ever', sub: 'tracked, not guessed' });
 
-  // 2×3 glass tiles
-  const gx = 64, gy = 360, gw = (W - gx * 2 - 28) / 2, gh = 258, gap = 28;
+  // 2×3 glass tiles — taller with more air in story format
+  const gx = 64, gy = TOP + 260, gw = (W - gx * 2 - 28) / 2, gh = story ? 330 : 258, gap = story ? 36 : 28;
   stats.slice(0, 6).forEach((s, i) => {
     const x = gx + (i % 2) * (gw + gap), y = gy + Math.floor(i / 2) * (gh + gap);
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
@@ -1207,21 +1224,22 @@ function buildShareCardCanvas() {
     gloss.addColorStop(0, 'rgba(255,255,255,0.10)'); gloss.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = gloss; rr(ctx, x, y, gw, gh, 34); ctx.fill();
     ctx.fillStyle = '#f4ede0';
-    ctx.font = `400 86px ${serif}`;
-    ctx.fillText(s.big, x + 34, y + 118);
+    ctx.font = `400 ${story ? 100 : 86}px ${serif}`;
+    ctx.fillText(s.big, x + 34, y + (story ? 136 : 118));
     ctx.fillStyle = 'rgba(244,237,224,0.85)';
-    ctx.font = `600 30px ${sans}`;
-    ctx.fillText(s.label, x + 34, y + 172);
+    ctx.font = `600 ${story ? 33 : 30}px ${sans}`;
+    ctx.fillText(s.label, x + 34, y + (story ? 198 : 172));
     ctx.fillStyle = 'rgba(230,168,120,0.9)';
-    ctx.font = `500 27px ${sans}`;
-    ctx.fillText(s.sub, x + 34, y + 214);
+    ctx.font = `500 ${story ? 29 : 27}px ${sans}`;
+    ctx.fillText(s.sub, x + 34, y + (story ? 246 : 214));
   });
 
-  // footer: receipts line + link pill
+  // footer: receipts line + link pill (kept above the Stories reply bar)
+  const fy = H - BOTTOM - 130;
   ctx.fillStyle = 'rgba(244,237,224,0.6)';
   ctx.font = `500 30px ${sans}`;
-  ctx.fillText('📊 Every number from real logged workouts & meals', 64, H - 130);
-  const pillW = 520, pillH = 74, px = 64, py = H - 104;
+  ctx.fillText('📊 Every number from real logged workouts & meals', 64, fy);
+  const pillW = 520, pillH = 74, px = 64, py = fy + 26;
   ctx.fillStyle = 'rgba(197,122,80,0.92)';
   rr(ctx, px, py, pillW, pillH, 37); ctx.fill();
   ctx.fillStyle = '#fff';
@@ -1230,14 +1248,20 @@ function buildShareCardCanvas() {
   return canvas;
 }
 
-async function openShareCard() {
-  const canvas = buildShareCardCanvas();
-  $('shareCardPreview').src = canvas.toDataURL('image/png');
+let SHARE_CARD_FORMAT = 'story';
+
+async function openShareCard(format = SHARE_CARD_FORMAT) {
+  SHARE_CARD_FORMAT = format;
+  qsa('[data-cardfmt]').forEach(b => b.classList.toggle('active', b.dataset.cardfmt === format));
+  const canvas = buildShareCardCanvas(format);
+  const img = $('shareCardPreview');
+  img.style.animation = 'none'; void img.offsetWidth; img.style.animation = 'fadeScale .35s var(--ease) both';
+  img.src = canvas.toDataURL('image/png');
   SHARE_CARD_BLOB = await new Promise(res => canvas.toBlob(res, 'image/png'));
   const file = SHARE_CARD_BLOB ? new File([SHARE_CARD_BLOB], 'bedrock-week.png', { type: 'image/png' }) : null;
   const canShareFile = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
   $('shareCardHint').textContent = canShareFile
-    ? 'Opens your share sheet — post it anywhere.'
+    ? (format === 'story' ? 'Sized for Snapchat & IG Stories — nothing hides under the platform UI.' : 'Feed-perfect 4:5 — post it anywhere.')
     : 'Long-press (or right-click) the card to save it, then post it anywhere.';
   $('shareCardSheet').hidden = false;
 }
@@ -1263,6 +1287,17 @@ async function postShareCard() {
 /* trigger it — the trainer shows up on its own.                       */
 /* ---------------------------------------------------------------- */
 function briefShownKey() { return `bedrock_brief_shown_${ACTIVE.id}_${new Date().toDateString()}`; }
+function briefAiCacheKey() { return `bedrock_brief_ai_${ACTIVE.id}_${new Date().toDateString()}`; }
+
+// Fired at boot (non-blocking): by the time the sheet opens, Claude's read
+// is usually already cached — the brief appears complete instantly instead
+// of loading in front of the user.
+function prefetchBriefAI() {
+  if (!Sync.isLoggedIn() || localStorage.getItem(briefAiCacheKey())) return;
+  const sys = BEDROCK_PERSONA + ' Write a 2-sentence morning brief for this person: sentence 1 = the single most important thing in their data right now (a real number), sentence 2 = today\'s one move. No greeting, no preamble.';
+  BedrockAPI.chat([{ role: 'user', content: Insights.summaryText(ACTIVE) }], sys, 120)
+    .then(res => { if (res.ok) localStorage.setItem(briefAiCacheKey(), res.text); });
+}
 
 function maybeShowDailyBrief() {
   if (!ACTIVE) return;
@@ -1288,6 +1323,20 @@ async function openDailyBrief() {
   const totals = Nutrition.todayTotals(ACTIVE);
   const focus = Insights.volumeLandmarkNote(ACTIVE);
 
+  // quick-glance stat chips: streak, week position, yesterday's fuel, water
+  const yKey = new Date(Date.now() - 86400000).toDateString();
+  const yMeals = (ACTIVE.history.meals || []).filter(m => new Date(m.date).toDateString() === yKey);
+  const yKcal = yMeals.reduce((a, m) => a + m.calories, 0);
+  const yWater = (ACTIVE.history.water || []).filter(w => new Date(w.date).toDateString() === yKey).reduce((a, w) => a + w.ml, 0);
+  const weekCount = (ACTIVE.history.workouts || []).filter(w => w.date > Date.now() - 7 * 86400000).length;
+  const streak = Insights.workoutStreak(ACTIVE);
+  const chip = (icon, val, label) => `<div class="brief-stat"><span>${icon}</span><b>${val}</b><small>${label}</small></div>`;
+  $('briefStats').innerHTML =
+    chip('🔥', streak, `week streak${streak === 1 ? '' : 's'}`) +
+    chip('🏋️', `${weekCount}/${days}`, 'this week') +
+    chip('🍎', yMeals.length ? `${yKcal.toLocaleString()}` : '—', yMeals.length ? 'kcal yesterday' : 'no food logged yd') +
+    chip('💧', yWater ? `${Math.round(yWater / Nutrition.waterTargetMl(ACTIVE) * 100)}%` : '—', 'water yesterday');
+
   const sec = (icon, title, body) => `<div class="brief-section"><span class="brief-icon">${icon}</span><div><b>${title}</b><p>${body}</p></div></div>`;
   const sessionMuscles = [...new Set(session.exercises.map(ex => (Workout.EX.find(e => e.id === ex.id) || {}).muscle).filter(Boolean))];
   const readyMuscles = sessionMuscles.filter(m => rec[m] == null || rec[m] >= 48);
@@ -1304,17 +1353,16 @@ async function openDailyBrief() {
   $('briefSheet').hidden = false;
   localStorage.setItem(briefShownKey(), '1');
 
-  // Claude tops the brief with a 2-line personal read (cached per day)
+  // Claude's read — usually already prefetched at boot, so this is instant
   const aiOut = $('briefAiLine');
-  const cacheKey = `bedrock_brief_ai_${ACTIVE.id}_${new Date().toDateString()}`;
-  const cached = localStorage.getItem(cacheKey);
+  const cached = localStorage.getItem(briefAiCacheKey());
   if (cached) { aiOut.textContent = cached; aiOut.hidden = false; return; }
   if (!Sync.isLoggedIn()) { aiOut.hidden = true; return; }
   aiOut.hidden = false;
   aiOut.textContent = 'Reading your data…';
   const sys = BEDROCK_PERSONA + ' Write a 2-sentence morning brief for this person: sentence 1 = the single most important thing in their data right now (a real number), sentence 2 = today\'s one move. No greeting, no preamble.';
   const res = await BedrockAPI.chat([{ role: 'user', content: Insights.summaryText(ACTIVE) }], sys, 120);
-  if (res.ok) { aiOut.textContent = res.text; localStorage.setItem(cacheKey, res.text); }
+  if (res.ok) { aiOut.textContent = res.text; localStorage.setItem(briefAiCacheKey(), res.text); }
   else aiOut.hidden = true;
 }
 
@@ -3058,6 +3106,7 @@ function init() {
   $('btnShareCardClose').addEventListener('click', () => { $('shareCardSheet').hidden = true; });
   $('shareCardSheet').addEventListener('click', e => { if (e.target.id === 'shareCardSheet') $('shareCardSheet').hidden = true; });
   $('btnShareCardPost').addEventListener('click', postShareCard);
+  qsa('[data-cardfmt]').forEach(b => b.addEventListener('click', () => openShareCard(b.dataset.cardfmt)));
   $('btnExHistoryClose').addEventListener('click', () => { $('exHistorySheet').hidden = true; });
   $('exHistorySheet').addEventListener('click', e => { if (e.target.id === 'exHistorySheet') $('exHistorySheet').hidden = true; });
   $('btnTakePhoto').addEventListener('click', openBodyScanCamera);
@@ -3233,6 +3282,7 @@ function init() {
   if (Sync.isLoggedIn()) {
     Sync.pull().then(res => {
       if (res.applied) { ACTIVE = Store.getActiveProfile(); renderDashboard(); }
+      if (ACTIVE) prefetchBriefAI(); // warm the daily brief so it opens complete
     });
   }
 
